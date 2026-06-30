@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
 
-from backend.enums.job_status import JobStatus
-from backend.models.job import Job
-from backend.repositories.job_repository import JobRepository
+from backend.common.enums.job_status import JobStatus
+from backend.job.job import Job
+from backend.job.job_repository import JobRepository
 
 
 class JobService:

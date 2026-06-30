@@ -2,10 +2,11 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.enums.job_status import JobStatus
+from backend.common.enums.job_status import JobStatus
 
 
 class JobResponse(BaseModel):
+
     id: int
 
     status: JobStatus
@@ -19,6 +20,8 @@ class JobResponse(BaseModel):
     completed_at: datetime | None
 
     file_path: str | None
+
+    error_message: str | None
 
     model_config = ConfigDict(
         from_attributes=True

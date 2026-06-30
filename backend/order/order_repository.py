@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.models.order import Order
+from backend.order.order import Order
 
 
 class OrderRepository:
