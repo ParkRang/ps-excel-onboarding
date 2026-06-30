@@ -5,8 +5,8 @@ from sqlalchemy import DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.database import Base
-from backend.enums.job_status import JobStatus
-from backend.utils.now import now
+from backend.common.enums.job_status import JobStatus
+from backend.common.utils.now import now
 
 
 class Job(Base):

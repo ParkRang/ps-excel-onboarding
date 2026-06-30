@@ -4,7 +4,7 @@ from sqlalchemy import Integer, String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.database import Base
-from backend.utils.now import now
+from backend.common.utils.now import now
 
 
 class Order(Base):
