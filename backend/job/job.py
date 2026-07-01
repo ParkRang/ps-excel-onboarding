@@ -1,7 +1,7 @@
 from zoneinfo import ZoneInfo
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String
+from sqlalchemy import CheckConstraint, DateTime, Enum, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.database import Base
@@ -12,46 +12,77 @@ from common.utils.now import now
 class Job(Base):
     __tablename__ = "jobs"
 
+    __table_args__ = (
+        CheckConstraint("progress >= 0 AND progress <= 100", name="ck_jobs_progress"),
+        CheckConstraint("processed_rows >= 0", name="ck_jobs_processed_rows"),
+        CheckConstraint("total_rows >= 0", name="ck_jobs_total_rows"),
+    )
+
     id: Mapped[int] = mapped_column(
         Integer,
         primary_key=True,
-        autoincrement=True
+        autoincrement=True,
     )
 
     status: Mapped[JobStatus] = mapped_column(
-        Enum(JobStatus),
+        Enum(JobStatus, native_enum=False, length=20),
         nullable=False,
-        default=JobStatus.PENDING
+        default=JobStatus.PENDING,
+        index=True,
     )
 
     progress: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
-        default=0
+        default=0,
+    )
+
+    processed_rows: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    total_rows: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
     )
 
     requested_at: Mapped[datetime] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
-        default=now
+        default=now,
     )
 
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime,
-        nullable=True
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime,
-        nullable=True
+        DateTime(timezone=True),
+        nullable=True,
     )
 
-    file_path: Mapped[str | None] = mapped_column(
+    gcs_object_name: Mapped[str | None] = mapped_column(
         String(500),
-        nullable=True
+        nullable=True,
     )
 
     error_message: Mapped[str | None] = mapped_column(
-        String(1000),
-        nullable=True
+        Text,
+        nullable=True,
+    )
+
+    task_name: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        unique=True,
+    )
+
+    attempt_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
     )

@@ -10,4 +10,16 @@ class Settings:
     DB_PORT = os.getenv('DB_PORT')
     DB_NAME = os.getenv('DB_NAME')
     
+    GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
+    GCP_LOCATION = os.getenv(
+        "GCP_LOCATION"
+    )
+    CLOUD_TASKS_QUEUE = os.getenv(
+        "CLOUD_TASKS_QUEUE"
+    )
 
+    BACKEND_URL = os.getenv("BACKEND_URL")
+
+    TASKS_SERVICE_ACCOUNT_EMAIL = os.getenv(
+        "TASKS_SERVICE_ACCOUNT_EMAIL"
+    )
