@@ -3,9 +3,9 @@ import os
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
-from backend.job.job import Job
-from backend.order.order import Order
-from backend.job.job_repository import JobRepository
+from job.job import Job
+from order.order import Order
+from job.job_repository import JobRepository
 
 
 class ExcelService:

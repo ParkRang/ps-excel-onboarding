@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.common.enums.job_status import JobStatus
+from common.enums.job_status import JobStatus
 
 
 class JobResponse(BaseModel):

@@ -2,11 +2,11 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from backend.common.enums.job_status import JobStatus
-from backend.job.job import Job
-from backend.job.job_repository import JobRepository
-from backend.order.order_repository import OrderRepository
-from backend.excel.excel_service import ExcelService
+from common.enums.job_status import JobStatus
+from job.job import Job
+from job.job_repository import JobRepository
+from order.order_repository import OrderRepository
+from excel.excel_service import ExcelService
 
 
 class WorkerService:
@@ -24,6 +24,7 @@ class WorkerService:
             raise ValueError(f"Job({job_id})을 찾을 수 없습니다.")
 
         try:
+
             # 작업 시작
             job.status = JobStatus.PROCESSING
             job.started_at = datetime.now()

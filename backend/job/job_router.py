@@ -1,10 +1,10 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.db.session import get_db, SessionLocal
-from backend.job.job_response import JobResponse
-from backend.job.job_service import JobService
-from backend.excel.worker_service import WorkerService
+from db.session import get_db, SessionLocal
+from job.job_response import JobResponse
+from job.job_service import JobService
+from excel.worker_service import WorkerService
 
 router = APIRouter()
 
