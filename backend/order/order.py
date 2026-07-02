@@ -18,7 +18,7 @@ class Order(Base):
 
     user_name: Mapped[str] = mapped_column(
         String(100),
-        nullable=False,
+        nullable=True,
     )
 
     product_name: Mapped[str] = mapped_column(
