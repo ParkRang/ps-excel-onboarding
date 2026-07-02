@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -7,22 +8,29 @@ from common.enums.job_status import JobStatus
 
 class JobResponse(BaseModel):
 
-    id: int
+    job_id: int
 
     status: JobStatus
 
     progress: int
+    processed_rows: int
+    total_rows: int
 
     requested_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 
-    started_at: datetime | None
+    failed_at: Optional[datetime] = None
 
-    completed_at: datetime | None
+    duration_seconds: Optional[float] = None
 
-    file_path: str | None
+    gcs_object_name: Optional[str] = None
 
-    error_message: str | None
+    gcs_url : Optional[str] = None
 
-    model_config = ConfigDict(
-        from_attributes=True
-    )
+    error_message: Optional[str] = None
+
+    attempt_count: int
+
+    class Config:
+        from_attributes = True
