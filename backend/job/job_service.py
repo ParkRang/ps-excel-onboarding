@@ -5,6 +5,10 @@ from common.utils.now import now
 from job.job import Job
 from job.job_repository import JobRepository
 from services.cloud_task_service import CloudTaskService
+from webhook.webhook_service import WebhookService
+from core.logging import start_logger
+from core.logging import complete_logger
+from core.logging import fail_logger
 
 
 class JobService:
@@ -12,6 +16,7 @@ class JobService:
     def __init__(self):
         self.job_repository = JobRepository()
         self.cloud_task_service = CloudTaskService()
+        self.webhook_service = WebhookService()
 
     def create_export(self, db: Session) -> Job:
         """
@@ -24,17 +29,17 @@ class JobService:
 
         job = self.job_repository.save(db, job)
 
-        try:
-            self.cloud_task_service.enqueue(job.id)
+        # try:
+        #     self.cloud_task_service.enqueue(job.id)
 
-        except Exception as error:
-            job.status = JobStatus.FAILED
-            job.completed_at = now()
-            job.error_message = f"Cloud Tasks 등록 실패: {error}"
+        # except Exception as error:
+        #     job.status = JobStatus.FAILED
+        #     job.completed_at = now()
+        #     job.error_message = f"Cloud Tasks 등록 실패: {error}"
 
-            self.job_repository.update(db, job)
+        #     self.job_repository.save(db, job)
 
-            raise
+        #     raise
 
         return job
 
@@ -58,10 +63,13 @@ class JobService:
     ) -> Job:
         job.status = JobStatus.PROCESSING
         job.started_at = now()
+        job.attempt_count += 1
         job.progress = 0
         job.error_message = None
 
-        return self.job_repository.update(db, job)
+        start_logger(job_id=job.id, started_at=job.started_at)
+
+        return self.job_repository.save(db, job)
 
     def update_progress(
         self,
@@ -71,21 +79,40 @@ class JobService:
     ) -> Job:
         job.progress = min(progress, 99)
 
-        return self.job_repository.update(db, job)
+        return self.job_repository.save(db, job)
 
     def complete_job(
         self,
         db: Session,
         job: Job,
-        file_path: str,
+        gcs_object_name: str,
+        gcs_url: str,
     ) -> Job:
         job.status = JobStatus.DONE
         job.progress = 100
         job.completed_at = now()
-        job.file_path = file_path
-        job.error_message = None
+        if job.started_at:
+            job.duration_seconds = (
+            job.completed_at - job.started_at
+        ).total_seconds()
+        job.gcs_object_name = gcs_object_name
+        job.gcs_url = gcs_url
+        
+        complete_logger(
+            job_id=job.id,
+            completed_at=job.completed_at,
+            duration_seconds=job.duration_seconds,
+            gcs_url=job.gcs_url,
+        )
 
-        return self.job_repository.update(db, job)
+        WebhookService.send_success_message(
+            self.webhook_service,
+            job_id=job.id,
+            completed_at=job.completed_at,
+            download_url=job.gcs_url,
+        )
+
+        return self.job_repository.save(db, job)
 
     def fail_job(
         self,
@@ -97,4 +124,16 @@ class JobService:
         job.completed_at = now()
         job.error_message = str(error)
 
-        return self.job_repository.update(db, job)
+        fail_logger(
+            job_id=job.id,
+            failed_at=job.failed_at,
+            error_message=job.error_message,
+        )
+
+        WebhookService.send_failure_message(
+            self.webhook_service,
+            job_id=job.id,
+            error_message=job.error_message,
+        )
+
+        return self.job_repository.save(db, job)
