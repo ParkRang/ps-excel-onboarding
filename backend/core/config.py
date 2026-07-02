@@ -14,12 +14,24 @@ class Settings:
     GCP_LOCATION = os.getenv(
         "GCP_LOCATION"
     )
-    CLOUD_TASKS_QUEUE = os.getenv(
-        "CLOUD_TASKS_QUEUE"
+    GCP_TASKS_QUEUE = os.getenv(
+        "GCP_TASKS_QUEUE"
     )
 
     BACKEND_URL = os.getenv("BACKEND_URL")
 
     TASKS_SERVICE_ACCOUNT_EMAIL = os.getenv(
         "TASKS_SERVICE_ACCOUNT_EMAIL"
+    )
+
+    GCP_STORAGE_BUCKET_NAME = os.getenv(
+        "GCP_STORAGE_BUCKET_NAME"
+    )
+
+    TASKS_SERVICE_ACCOUNT_EMAIL = os.getenv(
+        "TASKS_SERVICE_ACCOUNT_EMAIL"
+    )
+
+    DISCORD_WEBHOOK_URL = os.getenv(
+        "DISCORD_WEBHOOK_URL"
     )
