@@ -6,4 +6,4 @@ KST = ZoneInfo("Asia/Seoul")
 
 
 def now():
-    return datetime.now(KST)
+    return datetime.now(KST).replace(tzinfo=None)
