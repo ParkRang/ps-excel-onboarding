@@ -19,8 +19,9 @@ class CloudTaskService:
         queue_path = client.queue_path(
             self.settings.GCP_PROJECT_ID,
             self.settings.GCP_LOCATION,
-            self.settings.CLOUD_TASKS_QUEUE,
-        )
+            self.settings.GCP_TASKS_QUEUE,
+    
+    )
 
         worker_url = (
             f"{self.settings.BACKEND_URL}"
