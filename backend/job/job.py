@@ -50,23 +50,37 @@ class Job(Base):
     )
 
     requested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        DateTime(timezone=False),
         nullable=False,
         default=now,
     )
 
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
+        DateTime(timezone=False),
         nullable=True,
     )
 
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
+        DateTime(timezone=False),
+        nullable=True,
+    )
+
+    failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False),
+        nullable=True,
+    )
+
+    duration_seconds: Mapped[float | None] = mapped_column(
         nullable=True,
     )
 
     gcs_object_name: Mapped[str | None] = mapped_column(
         String(500),
+        nullable=True,
+    )
+
+    gcs_url: Mapped[str | None] = mapped_column(
+        String(1000),
         nullable=True,
     )
 
@@ -85,4 +99,9 @@ class Job(Base):
         Integer,
         nullable=False,
         default=0,
+    )
+
+    download_url: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
     )
