@@ -16,6 +16,16 @@ class JobRepository:
     def find_by_id(self, db: Session, job_id: int) -> Job | None:
         return db.get(Job, job_id)
 
+    def find_all(self, db: Session) -> list[Job]:
+        stmt = (
+            select(Job)
+            .order_by(Job.id.desc())
+        )
+
+        return list(
+            db.execute(stmt).scalars().all()
+        )
+
     def find_page(self, db: Session, page: int, size: int) -> tuple[list[Job], int]:
         total = db.scalar(select(func.count()).select_from(Job)) or 0
 

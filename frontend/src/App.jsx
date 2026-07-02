@@ -1,121 +1,177 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createExportJob, getJobs } from './api/jobs'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
+const STATUS_LABEL = {
+  PENDING: '대기 중',
+  PROCESSING: '생성 중',
+  DONE: '완료',
+  FAILED: '실패',
+}
+
+function formatDate(value) {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat('ko-KR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
+}
+
+function formatDuration(value) {
+  if (value == null) return '-'
+  return value < 60 ? `${value.toFixed(1)}초` : `${Math.floor(value / 60)}분 ${Math.round(value % 60)}초`
+}
+
+function Progress({ job }) {
+  if (job.status === 'FAILED') return <span className="error-text">{job.error_message || '알 수 없는 오류'}</span>
+  if (job.status === 'PENDING') return <span className="muted">작업 시작을 기다리고 있습니다.</span>
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
+    <div className="progress-cell">
+      <div className="progress-meta">
+        <span>{job.progress}%</span>
+        <span>{job.processed_rows.toLocaleString()} / {job.total_rows.toLocaleString()}행</span>
+      </div>
+      <div className="progress-track" aria-label={`진행률 ${job.progress}%`}>
+        <span style={{ width: `${job.progress}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function DownloadLink({ job }) {
+  if (job.status !== 'DONE') return <span className="muted">-</span>
+
+  const url = job.download_url || job.gcs_url
+  const downloadable = url?.startsWith('http://') || url?.startsWith('https://')
+
+  return downloadable ? (
+    <a className="download-link" href={url} target="_blank" rel="noreferrer">다운로드</a>
+  ) : (
+    <span className="muted" title="백엔드에서 HTTP 다운로드 URL을 제공해야 합니다.">준비 필요</span>
+  )
+}
+
+function App() {
+  const [jobs, setJobs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState('')
+
+  const loadJobs = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true)
+    try {
+      setJobs(await getJobs())
+      setError('')
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+
+    getJobs()
+      .then((data) => {
+        if (!active) return
+        setJobs(data)
+        setError('')
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError.message)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const hasActiveJob = jobs.some(({ status }) => status === 'PENDING' || status === 'PROCESSING')
+
+  useEffect(() => {
+    if (!hasActiveJob) return undefined
+    const timer = window.setInterval(() => loadJobs({ silent: true }), 2000)
+    return () => window.clearInterval(timer)
+  }, [hasActiveJob, loadJobs])
+
+  const summary = useMemo(() => ({
+    total: jobs.length,
+    active: jobs.filter(({ status }) => status === 'PENDING' || status === 'PROCESSING').length,
+    done: jobs.filter(({ status }) => status === 'DONE').length,
+    failed: jobs.filter(({ status }) => status === 'FAILED').length,
+  }), [jobs])
+
+  async function handleCreate() {
+    setCreating(true)
+    setError('')
+    try {
+      await createExportJob()
+      await loadJobs({ silent: true })
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <main className="page-shell">
+      <header className="page-header">
         <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
+          <p className="eyebrow">ORDER EXPORT</p>
+          <h1>주문 엑셀 내보내기</h1>
+          <p className="description">주문 데이터를 엑셀 파일로 생성하고 진행 상태를 확인합니다.</p>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
+        <button className="primary-button" onClick={handleCreate} disabled={creating}>
+          {creating ? '요청 중…' : '새 엑셀 만들기'}
         </button>
+      </header>
+
+      {error && <div className="alert" role="alert">{error} <button onClick={() => loadJobs()}>다시 시도</button></div>}
+
+      <section className="summary-grid" aria-label="작업 요약">
+        <article><span>전체 작업</span><strong>{summary.total}</strong></article>
+        <article><span>진행 중</span><strong>{summary.active}</strong></article>
+        <article><span>완료</span><strong>{summary.done}</strong></article>
+        <article><span>실패</span><strong>{summary.failed}</strong></article>
       </section>
 
-      <div className="ticks"></div>
+      <section className="jobs-panel">
+        <div className="panel-heading">
+          <div><h2>생성 기록</h2><p>진행 중인 작업은 2초마다 자동으로 갱신됩니다.</p></div>
+          <button className="text-button" onClick={() => loadJobs()} disabled={loading}>새로고침</button>
+        </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
+        {loading ? (
+          <div className="empty-state">작업 목록을 불러오는 중입니다…</div>
+        ) : jobs.length === 0 ? (
+          <div className="empty-state"><strong>아직 생성 기록이 없습니다.</strong><span>첫 번째 주문 엑셀을 만들어보세요.</span></div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>작업</th><th>상태</th><th>진행 상황</th><th>요청 시각</th><th>소요 시간</th><th>파일</th></tr></thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <tr key={job.job_id}>
+                    <td className="job-id">#{job.job_id}</td>
+                    <td><span className={`status status-${job.status.toLowerCase()}`}>{STATUS_LABEL[job.status] || job.status}</span></td>
+                    <td><Progress job={job} /></td>
+                    <td>{formatDate(job.requested_at)}</td>
+                    <td>{formatDuration(job.duration_seconds)}</td>
+                    <td><DownloadLink job={job} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 

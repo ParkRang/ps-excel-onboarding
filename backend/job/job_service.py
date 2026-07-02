@@ -121,7 +121,7 @@ class JobService:
         error: Exception,
     ) -> Job:
         job.status = JobStatus.FAILED
-        job.completed_at = now()
+        job.failed_at = now()
         job.error_message = str(error)
 
         fail_logger(

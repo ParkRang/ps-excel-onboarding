@@ -10,29 +10,6 @@ router = APIRouter()
 job_service = JobService()
 
 
-@router.post(
-    "/export",
-    response_model=JobResponse
-)
-def create_export(
-    db: Session = Depends(get_db),
-):
-    """
-    엑셀 생성 작업을 요청합니다.
-
-    실제 엑셀 생성은 여기서 실행하지 않고,
-    JobService가 Cloud Tasks에 작업을 등록합니다.
-    """
-    try:
-        return job_service.create_export(db)
-
-    except Exception as error:
-        raise HTTPException(
-
-
-        ) from error
-
-
 @router.get(
     "/jobs",
     response_model=list[JobResponse],
