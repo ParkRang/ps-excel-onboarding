@@ -10,6 +10,10 @@ import json
 from dotenv import load_dotenv
 from google.cloud import tasks_v2
 
+from core.logging import setup_logger
+
+setup_logger()
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -20,8 +24,6 @@ app.include_router(excel_router)
 def read_root():
     # push_test_task()
     return {"message": "Hello from FastAPI backend!"}
-
-
 
 
 load_dotenv()
