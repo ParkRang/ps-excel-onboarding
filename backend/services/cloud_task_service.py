@@ -12,9 +12,6 @@ class CloudTaskService:
         self.settings = Settings()
 
     def enqueue(self, job_id: int) -> str:
-        """
-        Cloud Tasks에 Excel 생성 작업을 등록합니다.
-        """
 
         # 메서드 실행 시점에 client를 생성합니다.
         client = tasks_v2.CloudTasksClient()
