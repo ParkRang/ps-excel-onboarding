@@ -4,6 +4,7 @@ from job.job import Job
 from order.order import Order
 from job.job_router import router as job_router
 from excel.excel_router import router as excel_router
+from task.task_router import router as task_router
 from fastapi.middleware.cors import CORSMiddleware
 
 import os
@@ -20,9 +21,12 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 app.include_router(job_router)
 app.include_router(excel_router)
+app.include_router(task_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173",
+                   "https://ps-onboarding-frontend-1038097021464.asia-northeast3.run.app"
+                   ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

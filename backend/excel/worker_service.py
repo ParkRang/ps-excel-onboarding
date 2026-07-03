@@ -51,7 +51,7 @@ class WorkerService:
                 job=job,
                 gcs_object_name=upload_result["object_name"],
                 gcs_url=upload_result["gcs_url"],
-                # download_url=upload_result["download_url"]
+                download_url=upload_result["download_url"]
             )
 
         except Exception as error:

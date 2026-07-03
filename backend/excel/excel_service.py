@@ -21,8 +21,8 @@ class ExcelService:
         job: Job,
         orders: list[Order],
     ) -> str:
-        workbook = Workbook()
-        sheet = workbook.active
+        workbook = Workbook(write_only=True)
+        sheet = workbook.create_sheet("Orders")
         sheet.title = "Orders"
 
         sheet.append([
@@ -35,13 +35,18 @@ class ExcelService:
             "주문일",
         ])
 
-        total = len(orders)
-        last_progress = 0
-
-        job.total_rows = total
+        job.total_rows = db.query(Order).count()
         job.processed_rows = 0
         job.progress = 0
         self.job_repository.save(db, job)
+
+        last_progress = 0
+
+        orders = (
+            db.query(Order)
+            .order_by(Order.id)
+            .yield_per(1000)
+        )
 
         # raise Exception("Webhook 테스트용 강제 실패")
 
@@ -56,7 +61,7 @@ class ExcelService:
                 order.order_date.strftime("%Y-%m-%d %H:%M:%S"),
             ])
 
-            progress = int(index / total * 100) if total > 0 else 100
+            progress = int(index / job.total_rows * 100) if job.total_rows > 0 else 100
 
             if progress > last_progress:
                 job.processed_rows = index

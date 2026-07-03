@@ -14,8 +14,8 @@ class Settings:
     GCP_LOCATION = os.getenv(
         "GCP_LOCATION"
     )
-    GCP_TASKS_QUEUE = os.getenv(
-        "GCP_TASKS_QUEUE"
+    GCP_TASKS_QUEUE_NAME = os.getenv(
+        "GCP_TASKS_QUEUE_NAME"
     )
 
     BACKEND_URL = os.getenv("BACKEND_URL")

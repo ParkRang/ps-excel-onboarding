@@ -19,13 +19,13 @@ class CloudTaskService:
         queue_path = client.queue_path(
             self.settings.GCP_PROJECT_ID,
             self.settings.GCP_LOCATION,
-            self.settings.GCP_TASKS_QUEUE,
+            self.settings.GCP_TASKS_QUEUE_NAME,
     
     )
 
         worker_url = (
             f"{self.settings.BACKEND_URL}"
-            "/internal/tasks/export"
+            "/tasks/excel"
         )
 
         payload = {

@@ -4,7 +4,8 @@ from common.enums.job_status import JobStatus
 from common.utils.now import now
 from job.job import Job
 from job.job_repository import JobRepository
-from services.cloud_task_service import CloudTaskService
+from job.job_response import JobResponse
+from task.task_service import CloudTaskService
 from webhook.webhook_service import WebhookService
 from core.logging import start_logger
 from core.logging import complete_logger
@@ -29,17 +30,8 @@ class JobService:
 
         job = self.job_repository.save(db, job)
 
-        # try:
-        #     self.cloud_task_service.enqueue(job.id)
-
-        # except Exception as error:
-        #     job.status = JobStatus.FAILED
-        #     job.completed_at = now()
-        #     job.error_message = f"Cloud Tasks 등록 실패: {error}"
-
-        #     self.job_repository.save(db, job)
-
-        #     raise
+        task_name = self.cloud_task_service.enqueue(job.id)
+        job.task_name = task_name
 
         return job
 
@@ -50,11 +42,39 @@ class JobService:
     ) -> Job | None:
         return self.job_repository.find_by_id(db, job_id)
 
+    # def get_jobs(
+    #     self,
+    #     db: Session,
+    # ) -> list[Job]:
+    #     return self.job_repository.find_all(db)
+
     def get_jobs(
         self,
         db: Session,
-    ) -> list[Job]:
-        return self.job_repository.find_all(db)
+    ) -> list[JobResponse]:
+
+        jobs = self.job_repository.find_all(db)
+
+        return [
+            JobResponse(
+                job_id=job.id,
+                status=job.status,
+                progress=job.progress,
+                processed_rows=job.processed_rows,
+                total_rows=job.total_rows,
+                requested_at=job.requested_at,
+                started_at=job.started_at,
+                completed_at=job.completed_at,
+                failed_at=job.failed_at,
+                duration_seconds=job.duration_seconds,
+                gcs_object_name=job.gcs_object_name,
+                gcs_url=job.gcs_url,
+                error_message=job.error_message,
+                task_name=job.task_name,
+                attempt_count=job.attempt_count,
+            )
+            for job in jobs
+        ]
 
     def start_job(
         self,
