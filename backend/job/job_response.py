@@ -28,6 +28,8 @@ class JobResponse(BaseModel):
 
     gcs_url : Optional[str] = None
 
+    download_url: Optional[str] = None
+
     error_message: Optional[str] = None
 
     attempt_count: int

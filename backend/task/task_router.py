@@ -7,7 +7,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 worker_service = WorkerService()
 
-@router.post("/task/excel")
+@router.post("/excel")
 def export_task(request: TaskRequest):
     worker_service.process_job(request.job_id)
 

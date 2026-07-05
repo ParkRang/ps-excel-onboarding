@@ -69,6 +69,7 @@ class JobService:
                 duration_seconds=job.duration_seconds,
                 gcs_object_name=job.gcs_object_name,
                 gcs_url=job.gcs_url,
+                download_url=job.download_url,
                 error_message=job.error_message,
                 task_name=job.task_name,
                 attempt_count=job.attempt_count,
@@ -107,6 +108,7 @@ class JobService:
         job: Job,
         gcs_object_name: str,
         gcs_url: str,
+        download_url: str,
     ) -> Job:
         job.status = JobStatus.DONE
         job.progress = 100
@@ -117,19 +119,21 @@ class JobService:
         ).total_seconds()
         job.gcs_object_name = gcs_object_name
         job.gcs_url = gcs_url
+        job.download_url = download_url
         
         complete_logger(
             job_id=job.id,
             completed_at=job.completed_at,
             duration_seconds=job.duration_seconds,
             gcs_url=job.gcs_url,
+            
         )
 
         WebhookService.send_success_message(
             self.webhook_service,
             job_id=job.id,
             completed_at=job.completed_at,
-            download_url=job.gcs_url,
+            download_url=job.download_url,
         )
 
         return self.job_repository.save(db, job)

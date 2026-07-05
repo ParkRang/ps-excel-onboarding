@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
 from job.job_service import JobService
-from order.order_repository import OrderRepository
+# from order.order_repository import OrderRepository
 from excel.excel_service import ExcelService
 from services.storage_service import GCSClient
 
@@ -17,7 +17,7 @@ class WorkerService:
 
     def __init__(self):
         self.job_service = JobService()
-        self.order_repository = OrderRepository()
+        # self.order_repository = OrderRepository()
         self.excel_service = ExcelService()
         self.storage_service = GCSClient()
 
@@ -28,14 +28,11 @@ class WorkerService:
             job = self.job_service.get_job(db, job_id)
 
             self.job_service.start_job(db, job)
-            orders = self.order_repository.find_all(db)
-
+            
             local_file_path = self.excel_service.create_excel(
                 db=db,
                 job=job,
-                orders=orders,
             )
-
             # gcs_object_name = self.storage_service.upload(
             #     local_file_path=local_file_path,
             #     job_id=job.id,

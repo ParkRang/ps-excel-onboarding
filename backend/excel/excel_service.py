@@ -19,11 +19,9 @@ class ExcelService:
         self,
         db: Session,
         job: Job,
-        orders: list[Order],
     ) -> str:
         workbook = Workbook(write_only=True)
         sheet = workbook.create_sheet("Orders")
-        sheet.title = "Orders"
 
         sheet.append([
             "주문번호",
@@ -35,43 +33,72 @@ class ExcelService:
             "주문일",
         ])
 
-        job.total_rows = db.query(Order).count()
+        total_rows = db.query(Order).count()
+
+        job.total_rows = total_rows
         job.processed_rows = 0
         job.progress = 0
         self.job_repository.save(db, job)
 
+        last_id = 0
+        chunk_size = 1000
+        processed_rows = 0
         last_progress = 0
 
-        orders = (
-            db.query(Order)
-            .order_by(Order.id)
-            .yield_per(1000)
-        )
+        while True:
+            orders = (
+                db.query(Order)
+                .filter(Order.id > last_id)
+                .order_by(Order.id)
+                .limit(chunk_size)
+                .all()
+            )
 
-        # raise Exception("Webhook 테스트용 강제 실패")
+            if not orders:
+                break
 
-        for index, order in enumerate(orders, start=1):
-            sheet.append([
-                order.id,
-                order.user_name,
-                order.product_name,
-                order.category,
-                order.amount,
-                order.status,
-                order.order_date.strftime("%Y-%m-%d %H:%M:%S"),
-            ])
+            for order in orders:
+                sheet.append([
+                    order.id,
+                    order.user_name,
+                    order.product_name,
+                    order.category,
+                    order.amount,
+                    order.status,
+                    self._format_datetime(order.order_date),
+                ])
 
-            progress = int(index / job.total_rows * 100) if job.total_rows > 0 else 100
+            processed_rows += len(orders)
+            last_id = orders[-1].id
+
+            progress = (
+                int(processed_rows / total_rows * 100)
+                if total_rows > 0
+                else 100
+            )
 
             if progress > last_progress:
-                job.processed_rows = index
+                job.processed_rows = processed_rows
                 job.progress = progress
                 self.job_repository.save(db, job)
                 last_progress = progress
 
+        job.processed_rows = processed_rows
+        job.progress = 100
+        self.job_repository.save(db, job)
+
+        return self._save_workbook(workbook)
+
+    def _save_workbook(self, workbook: Workbook) -> str:
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_file:
             temp_file_path = temp_file.name
 
         workbook.save(temp_file_path)
 
         return temp_file_path
+
+    def _format_datetime(self, value) -> str:
+        if value is None:
+            return ""
+
+        return value.strftime("%Y-%m-%d %H:%M:%S")
