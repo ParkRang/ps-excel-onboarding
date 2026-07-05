@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from db.session import get_db
 from job.job_response import JobResponse
 from job.job_service import JobService
 
+# from sse_starlette.sse import EventSourceResponse
+from core.sse_manager import sse_manager
+
+# import asyncio
 
 router = APIRouter()
 job_service = JobService()
@@ -36,3 +40,34 @@ def get_job(
         )
 
     return job
+
+# @router.get("/jobs/{job_id}/events", include_in_schema=False)
+# async def job_events(
+#     job_id: int,
+#     request: Request,
+# ):
+#     queue: asyncio.Queue = asyncio.Queue()
+#     loop = asyncio.get_running_loop()
+
+#     connection = sse_manager.connect(
+#         job_id=job_id,
+#         queue=queue,
+#         loop=loop,
+#     )
+
+#     async def event_generator():
+#         try:
+#             while True:
+#                 if await request.is_disconnected():
+#                     break
+
+#                 message = await queue.get()
+#                 yield message
+
+#         finally:
+#             sse_manager.disconnect(
+#                 job_id=job_id,
+#                 connection=connection,
+#             )
+
+#     return EventSourceResponse(event_generator())

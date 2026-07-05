@@ -1,4 +1,3 @@
-import os
 import tempfile
 
 from openpyxl import Workbook
@@ -7,12 +6,14 @@ from sqlalchemy.orm import Session
 from job.job import Job
 from order.order import Order
 from job.job_repository import JobRepository
+# from core.sse_manager import sse_manager
 from services.storage_service import GCSClient
 
 class ExcelService:
 
     def __init__(self):
         self.job_repository = JobRepository()
+        # self.sse_manager = sse_manager
         self.gcs_client = GCSClient()
 
     def create_excel(
@@ -81,11 +82,26 @@ class ExcelService:
                 job.processed_rows = processed_rows
                 job.progress = progress
                 self.job_repository.save(db, job)
+
+                # sse_manager.send(job.id, {
+                #     "job_id": job.id,
+                #     "status": (
+                #         job.status.value
+                #         if hasattr(job.status, "value")
+                #         else str(job.status)
+                #     ),
+                #     "progress": progress,
+                #     "processed_rows": processed_rows,
+                #     "total_rows": total_rows,
+                # })
+
                 last_progress = progress
 
         job.processed_rows = processed_rows
         job.progress = 100
         self.job_repository.save(db, job)
+
+
 
         return self._save_workbook(workbook)
 

@@ -93,11 +93,56 @@ function App() {
 
   const hasActiveJob = jobs.some(({ status }) => status === 'PENDING' || status === 'PROCESSING')
 
+
+  Polling : 
   useEffect(() => {
     if (!hasActiveJob) return undefined
     const timer = window.setInterval(() => loadJobs({ silent: true }), 2000)
     return () => window.clearInterval(timer)
   }, [hasActiveJob, loadJobs])
+
+
+  // SSE : 
+//   useEffect(() => {
+//   const activeJobs = jobs.filter(
+//     ({ status }) => status === 'PENDING' || status === 'PROCESSING'
+//   )
+
+//   if (activeJobs.length === 0) return undefined
+
+//   const eventSources = activeJobs.map((job) => {
+//     const eventSource = new EventSource(`${API_BASE_URL}/jobs/${job.job_id}/events`)
+
+//     eventSource.addEventListener('job-progress', (event) => {
+//       const updatedJob = JSON.parse(event.data)
+
+//       setJobs((prevJobs) =>
+//         prevJobs.map((prevJob) =>
+//           prevJob.job_id === updatedJob.job_id
+//             ? { ...prevJob, ...updatedJob }
+//             : prevJob
+//         )
+//       )
+
+//       if (updatedJob.status === 'DONE' || updatedJob.status === 'FAILED') {
+//         eventSource.close()
+//       }
+//     })
+
+//     eventSource.onerror = async () => {
+//       eventSource.close()
+
+//       // SSE 연결 실패 시 기존 조회 API로 한 번 복구
+//       await loadJobs({ silent: true })
+//     }
+
+//     return eventSource
+//   })
+
+//   return () => {
+//     eventSources.forEach((eventSource) => eventSource.close())
+//   }
+// }, [jobs, loadJobs])
 
   const summary = useMemo(() => ({
     total: jobs.length,

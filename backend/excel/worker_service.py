@@ -9,6 +9,8 @@ from job.job_service import JobService
 # from order.order_repository import OrderRepository
 from excel.excel_service import ExcelService
 from services.storage_service import GCSClient
+# from core.sse_manager import sse_manager
+
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,16 @@ class WorkerService:
                 download_url=upload_result["download_url"]
             )
 
+            # sse_manager.send(job.id, {
+            #     "job_id": job.id,
+            #     "status": "DONE",
+            #     "progress": 100,
+            #     "processed_rows": job.processed_rows,
+            #     "total_rows": job.total_rows,
+            #     "download_url": job.download_url,
+            #     "gcs_url": job.gcs_url,
+            # })
+
         except Exception as error:
             db.rollback()
 
@@ -60,6 +72,15 @@ class WorkerService:
                     job=job,
                     error=error,
                 )
+
+                # sse_manager.send(job.id, {
+                #     "job_id": job.id,
+                #     "status": "FAILED",
+                #     "progress": job.progress,
+                #     "processed_rows": job.processed_rows,
+                #     "total_rows": job.total_rows,
+                #     "error_message": job.error_message,
+                # })
 
             raise
 
