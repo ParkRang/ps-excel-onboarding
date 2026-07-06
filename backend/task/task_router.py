@@ -1,27 +1,22 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from excel.worker_service import WorkerService
+from excel.worker_service import WorkerBusyError, WorkerService
 from task.task_request import TaskRequest
 
-router = APIRouter(prefix="/tasks", tags=["tasks"])
 
-worker_service = WorkerService()
+router = APIRouter(prefix="/tasks", tags=["tasks"])
+worker = WorkerService()
+
 
 @router.post("/excel")
-async def export_task(request: TaskRequest):
-    worker_service.process_job(request.job_id)
-
+def export_task(request: TaskRequest):
+    try:
+        processed_job_id = worker.process_queued_job(request.job_id)
+    except WorkerBusyError as error:
+        # A non-2xx response asks Cloud Tasks to retry this wake-up signal.
+        raise HTTPException(status_code=503, detail=str(error)) from error
     return {
         "status": "ok",
-        "job_id": request.job_id,
+        "requested_job_id": request.job_id,
+        "processed_job_id": processed_job_id,
     }
-
-# @router.post("/excel")
-# async def export_task(job_id: int,
-#     excel_service: ExcelService = Depends(get_excel_service),):
-#     awiworker_service.process_job(request.job_id)
-
-#     return {
-#         "status": "ok",
-#         "job_id": request.job_id,
-#     }
