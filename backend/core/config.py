@@ -28,10 +28,6 @@ class Settings:
         "GCP_STORAGE_BUCKET_NAME"
     )
 
-    TASKS_SERVICE_ACCOUNT_EMAIL = os.getenv(
-        "TASKS_SERVICE_ACCOUNT_EMAIL"
-    )
-
     DISCORD_WEBHOOK_URL = os.getenv(
         "DISCORD_WEBHOOK_URL"
     )
