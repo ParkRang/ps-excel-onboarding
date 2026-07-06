@@ -2,6 +2,19 @@ import json, logging
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+def event_logger(message: str, *, level: int = logging.INFO, **fields) -> None:
+    logger.log(
+        level,
+        json.dumps(
+            {"message": message, **fields},
+            ensure_ascii=False,
+            default=str,
+        ),
+    )
+
+
 def setup_logger() :
 
     logging.basicConfig(
