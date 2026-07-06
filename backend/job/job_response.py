@@ -24,3 +24,14 @@ class JobResponse(BaseModel):
     error_message: str | None = None
     task_name: str | None = None
     attempt_count: int
+
+
+class JobPageResponse(BaseModel):
+    items: list[JobResponse]
+    total: int
+    active: int
+    done: int
+    failed: int
+    page: int
+    size: int
+    pages: int

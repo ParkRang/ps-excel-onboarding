@@ -22,10 +22,14 @@ async function request(path, options) {
   return body
 }
 
-export function getJobs() {
-  return request('/jobs')
+export function getJobs(page = 1, size = 20) {
+  return request(`/jobs/page?page=${page}&size=${size}`)
 }
 
 export function createExportJob() {
   return request('/create', { method: 'POST' })
+}
+
+export function getJobDownloadUrl(jobId) {
+  return request(`/jobs/${jobId}/download`)
 }

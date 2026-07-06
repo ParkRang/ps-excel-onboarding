@@ -1,5 +1,7 @@
 .page-shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; margin-bottom: 32px; }
+.create-actions { display: flex; align-items: center; gap: 12px; }
+.request-indicator { color: #718096; font-size: 13px; white-space: nowrap; }
 .eyebrow { margin: 0 0 10px; color: #2774e6; font-size: 12px; font-weight: 800; letter-spacing: .14em; }
 h1 { margin: 0; color: #111827; font-size: clamp(30px, 4vw, 44px); letter-spacing: -.04em; }
 .description { margin: 12px 0 0; color: #687386; }
@@ -32,14 +34,19 @@ td { padding: 18px; border-top: 1px solid #edf0f5; color: #4b5563; font-size: 14
 .progress-track span { display: block; height: 100%; border-radius: inherit; background: #3b82f6; transition: width .3s ease; }
 .error-text { display: block; max-width: 250px; overflow: hidden; color: #b91c1c; text-overflow: ellipsis; white-space: nowrap; }
 .muted { color: #9aa4b2; font-size: 13px; }
-.download-link { color: #2563eb; font-weight: 750; text-decoration: none; }
+.download-link { padding: 0; border: 0; background: none; color: #2563eb; font: inherit; font-weight: 750; text-decoration: none; cursor: pointer; }
 .download-link:hover { text-decoration: underline; }
+.download-link:disabled { cursor: wait; opacity: .65; }
 .empty-state { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #8792a4; }
 .empty-state strong { color: #374151; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 18px 24px; border-top: 1px solid #edf0f5; color: #677489; font-size: 13px; }
+.pagination button { padding: 8px 13px; border: 1px solid #dbe2ea; border-radius: 9px; background: #fff; color: #2563eb; font-weight: 700; cursor: pointer; }
+.pagination button:disabled { color: #aab3c0; cursor: not-allowed; }
 
 @media (max-width: 720px) {
   .page-shell { width: min(100% - 24px, 1180px); padding: 32px 0; }
   .page-header { align-items: stretch; flex-direction: column; gap: 22px; }
+  .create-actions { align-items: stretch; flex-direction: column-reverse; }
   .summary-grid { grid-template-columns: repeat(2, 1fr); }
   .summary-grid article { padding: 18px; }
 }

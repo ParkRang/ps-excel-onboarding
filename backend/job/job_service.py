@@ -1,4 +1,6 @@
-from sqlalchemy import select
+from math import ceil
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from common.enums.job_status import JobStatus
@@ -38,6 +40,31 @@ class JobService:
 
     def get_jobs(self, db: Session) -> list[Job]:
         return list(db.scalars(select(Job).order_by(Job.id.desc())).all())
+
+    def get_jobs_page(self, db: Session, page: int, size: int) -> dict:
+        total = db.scalar(select(func.count()).select_from(Job)) or 0
+        status_counts = dict(
+            db.execute(select(Job.status, func.count()).group_by(Job.status)).all()
+        )
+        statement = (
+            select(Job)
+            .order_by(Job.id.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        return {
+            "items": list(db.scalars(statement).all()),
+            "total": total,
+            "active": (
+                status_counts.get(JobStatus.PENDING, 0)
+                + status_counts.get(JobStatus.PROCESSING, 0)
+            ),
+            "done": status_counts.get(JobStatus.DONE, 0),
+            "failed": status_counts.get(JobStatus.FAILED, 0),
+            "page": page,
+            "size": size,
+            "pages": ceil(total / size) if total else 1,
+        }
 
     def start_job(self, db: Session, job: Job) -> Job:
         job.status = JobStatus.PROCESSING

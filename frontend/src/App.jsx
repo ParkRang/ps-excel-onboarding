@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
-import { API_BASE_URL, createExportJob, getJobs } from './api/jobs'
+import { useCallback, useEffect, useState, useRef } from 'react'
+import { API_BASE_URL, createExportJob, getJobDownloadUrl, getJobs } from './api/jobs'
 import './App.css'
 
 const STATUS_LABEL = {
@@ -40,68 +40,95 @@ function Progress({ job }) {
 }
 
 function DownloadLink({ job }) {
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
+
   if (job.status !== 'DONE') return <span className="muted">-</span>
 
-  const url = job.download_url || job.gcs_url
-  const downloadable = url?.startsWith('http://') || url?.startsWith('https://')
+  async function handleDownload() {
+    setDownloading(true)
+    setDownloadError('')
+    try {
+      const { download_url: downloadUrl } = await getJobDownloadUrl(job.job_id)
+      window.location.assign(downloadUrl)
+    } catch (error) {
+      setDownloadError(error.message)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
-  return downloadable ? (
-    <a className="download-link" href={url} target="_blank" rel="noreferrer">다운로드</a>
-  ) : (
-    <span className="muted" title="백엔드에서 HTTP 다운로드 URL을 제공해야 합니다.">준비 필요</span>
+  return (
+    <button
+      type="button"
+      className="download-link"
+      onClick={handleDownload}
+      disabled={downloading}
+      title={downloadError}
+    >
+      {downloading ? 'URL 생성 중…' : downloadError ? '다시 시도' : '다운로드'}
+    </button>
   )
 }
 
+const PAGE_SIZE = 20
+
 function App() {
   const [jobs, setJobs] = useState([])
+  const [page, setPage] = useState(1)
+  const [pages, setPages] = useState(1)
+  const [summary, setSummary] = useState({ total: 0, active: 0, done: 0, failed: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [requestingCount, setRequestingCount] = useState(0)
 
   const requestIdRef = useRef(0)
-  const fetchingRef = useRef(false)
+  const jobsRef = useRef([])
+  const pageRef = useRef(1)
 
-  const loadJobs = useCallback(async ({ silent = false } = {}) => {
-  if (fetchingRef.current) {
-    return
-  }
+  useEffect(() => {
+    jobsRef.current = jobs
+  }, [jobs])
 
-  fetchingRef.current = true
-  const requestId = ++requestIdRef.current
+  useEffect(() => {
+    pageRef.current = page
+  }, [page])
 
-  if (!silent) {
-    setLoading(true)
-  }
+  const loadJobs = useCallback(async ({ targetPage = pageRef.current } = {}) => {
+    const requestId = ++requestIdRef.current
 
-  try {
-    const data = await getJobs()
+    try {
+      const data = await getJobs(targetPage, PAGE_SIZE)
+      if (requestId !== requestIdRef.current) return
 
-    if (requestId !== requestIdRef.current) {
-      return
+      setJobs(data.items)
+      setPage(data.page)
+      setPages(data.pages)
+      setSummary({
+        total: data.total,
+        active: data.active,
+        done: data.done,
+        failed: data.failed,
+      })
+      setError('')
+    } catch (requestError) {
+      if (requestId === requestIdRef.current) setError(requestError.message)
     }
-
-    setJobs(data)
-    setError('')
-  } catch (requestError) {
-    if (requestId === requestIdRef.current) {
-      setError(requestError.message)
-    }
-  } finally {
-    fetchingRef.current = false
-
-    if (!silent && requestId === requestIdRef.current) {
-      setLoading(false)
-    }
-  }
-}, [])
-
+  }, [])
 
   useEffect(() => {
     let active = true
-
-    getJobs()
+    getJobs(1, PAGE_SIZE)
       .then((data) => {
         if (!active) return
-        setJobs(data)
+        setJobs(data.items)
+        setPages(data.pages)
+        setSummary({
+          total: data.total,
+          active: data.active,
+          done: data.done,
+          failed: data.failed,
+        })
         setError('')
       })
       .catch((requestError) => {
@@ -121,41 +148,42 @@ function App() {
 
     eventSource.addEventListener('job', (event) => {
       const updatedJob = JSON.parse(event.data)
+      const previousJob = jobsRef.current.find((job) => job.job_id === updatedJob.job_id)
 
       setJobs((previousJobs) => {
         const exists = previousJobs.some((job) => job.job_id === updatedJob.job_id)
-        if (!exists) return [updatedJob, ...previousJobs]
+        if (!exists) {
+          return pageRef.current === 1 && updatedJob.status === 'PENDING'
+            ? [updatedJob, ...previousJobs].slice(0, PAGE_SIZE)
+            : previousJobs
+        }
 
         return previousJobs.map((job) =>
-          job.job_id === updatedJob.job_id
-            ? { ...job, ...updatedJob }
-            : job
+          job.job_id === updatedJob.job_id ? { ...job, ...updatedJob } : job
         )
       })
+
+      if (!previousJob || previousJob.status !== updatedJob.status) {
+        loadJobs({ targetPage: pageRef.current })
+      }
     })
 
-    eventSource.onopen = () => {
-      loadJobs({ silent: true })
-    }
-
+    eventSource.onopen = () => loadJobs({ targetPage: pageRef.current })
     return () => eventSource.close()
   }, [loadJobs])
 
-
-  const summary = useMemo(() => ({
-    total: jobs.length,
-    active: jobs.filter(({ status }) => status === 'PENDING' || status === 'PROCESSING').length,
-    done: jobs.filter(({ status }) => status === 'DONE').length,
-    failed: jobs.filter(({ status }) => status === 'FAILED').length,
-  }), [jobs])
-
   async function handleCreate() {
     setError('')
+    setRequestingCount((count) => count + 1)
+
     try {
       await createExportJob()
-      await loadJobs({ silent: true })
+      setPage(1)
+      await loadJobs({ targetPage: 1 })
     } catch (requestError) {
       setError(requestError.message)
+    } finally {
+      setRequestingCount((count) => Math.max(0, count - 1))
     }
   }
 
@@ -167,12 +195,17 @@ function App() {
           <h1>주문 엑셀 내보내기</h1>
           <p className="description">주문 데이터를 엑셀 파일로 생성하고 진행 상태를 확인합니다.</p>
         </div>
-        <button className="primary-button" onClick={handleCreate}>
-          새 엑셀 만들기
-        </button>
+        <div className="create-actions">
+          {requestingCount > 0 && (
+            <span className="request-indicator">요청 전송 중 {requestingCount}건</span>
+          )}
+          <button className="primary-button" onClick={handleCreate}>
+            새 엑셀 만들기
+          </button>
+        </div>
       </header>
 
-      {error && <div className="alert" role="alert">{error} <button onClick={() => loadJobs()}>다시 시도</button></div>}
+      {error && <div className="alert" role="alert">{error} <button onClick={() => loadJobs({ targetPage: page })}>다시 시도</button></div>}
 
       <section className="summary-grid" aria-label="작업 요약">
         <article><span>전체 작업</span><strong>{summary.total}</strong></article>
@@ -183,8 +216,8 @@ function App() {
 
       <section className="jobs-panel">
         <div className="panel-heading">
-          <div><h2>생성 기록</h2><p>진행 중인 작업은 2초마다 자동으로 갱신됩니다.</p></div>
-          <button className="text-button" onClick={() => loadJobs()} disabled={loading}>새로고침</button>
+          <div><h2>생성 기록</h2><p>진행 상태는 실시간으로 갱신됩니다.</p></div>
+          <button className="text-button" onClick={() => loadJobs({ targetPage: page })}>새로고침</button>
         </div>
 
         {loading ? (
@@ -192,23 +225,50 @@ function App() {
         ) : jobs.length === 0 ? (
           <div className="empty-state"><strong>아직 생성 기록이 없습니다.</strong><span>첫 번째 주문 엑셀을 만들어보세요.</span></div>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>작업</th><th>상태</th><th>진행 상황</th><th>요청 시각</th><th>소요 시간</th><th>파일</th></tr></thead>
-              <tbody>
-                {jobs.map((job) => (
-                  <tr key={job.job_id}>
-                    <td className="job-id">#{job.job_id}</td>
-                    <td><span className={`status status-${job.status.toLowerCase()}`}>{STATUS_LABEL[job.status] || job.status}</span></td>
-                    <td><Progress job={job} /></td>
-                    <td>{formatDate(job.requested_at)}</td>
-                    <td>{formatDuration(job.duration_seconds)}</td>
-                    <td><DownloadLink job={job} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>작업</th><th>상태</th><th>진행 상황</th><th>요청 시각</th><th>소요 시간</th><th>파일</th></tr></thead>
+                <tbody>
+                  {jobs.map((job) => (
+                    <tr key={job.job_id}>
+                      <td className="job-id">#{job.job_id}</td>
+                      <td><span className={`status status-${job.status.toLowerCase()}`}>{STATUS_LABEL[job.status] || job.status}</span></td>
+                      <td><Progress job={job} /></td>
+                      <td>{formatDate(job.requested_at)}</td>
+                      <td>{formatDuration(job.duration_seconds)}</td>
+                      <td><DownloadLink job={job} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <nav className="pagination" aria-label="작업 목록 페이지">
+              <button
+                type="button"
+                onClick={() => {
+                  const targetPage = Math.max(1, page - 1)
+                  setPage(targetPage)
+                  loadJobs({ targetPage })
+                }}
+                disabled={page <= 1}
+              >
+                이전
+              </button>
+              <span>{page} / {pages} 페이지 · 총 {summary.total.toLocaleString()}건</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetPage = Math.min(pages, page + 1)
+                  setPage(targetPage)
+                  loadJobs({ targetPage })
+                }}
+                disabled={page >= pages}
+              >
+                다음
+              </button>
+            </nav>
+          </>
         )}
       </section>
     </main>
