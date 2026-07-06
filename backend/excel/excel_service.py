@@ -1,272 +1,77 @@
-import tempfile, asyncio
+import tempfile
+from math import ceil
 
 from openpyxl import Workbook
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from fastapi import BackgroundTasks
+
 from job.job import Job
+from job.job_events import publish_job_event
 from order.order import Order
-from job.job_repository import JobRepository
-# from core.sse_manager import sse_manager
-from services.storage_service import GCSClient
 
-
-from db.database import SessionLocal
 
 class ExcelService:
+    MAX_CHUNK_SIZE = 5000
 
-    # background_tasks: BackgroundTasks
-    def __init__(self):
-        self.job_repository = JobRepository()
-        # self.sse_manager = sse_manager
-        self.gcs_client = GCSClient()
-
-    def create_excel(
-        self,
-        db: Session,
-        job: Job,
-    ) -> str:
-        
-
+    def create_excel(self, db: Session, job: Job) -> str:
         workbook = Workbook(write_only=True)
         sheet = workbook.create_sheet("Orders")
+        sheet.append(["주문번호", "주문자", "상품명", "카테고리", "금액", "상태", "주문일"])
 
-        sheet.append([
-            "주문번호",
-            "주문자",
-            "상품명",
-            "카테고리",
-            "금액",
-            "상태",
-            "주문일",
-        ])
-
-        total_rows = db.query(Order).count()
-
-        job.total_rows = total_rows
-        job.processed_rows = 0
-        job.progress = 0
-        self.job_repository.save(db, job)
-
+        total_rows = db.scalar(select(func.count()).select_from(Order)) or 0
+        chunk_size = max(1, min(self.MAX_CHUNK_SIZE, ceil(total_rows / 100)))
+        self._save_progress(db, job, 0, total_rows)
         last_id = 0
-        chunk_size = 1000
         processed_rows = 0
         last_progress = 0
 
         while True:
-            orders = (
-                db.query(Order)
-                .filter(Order.id > last_id)
+            statement = (
+                select(
+                    Order.id,
+                    Order.user_name,
+                    Order.product_name,
+                    Order.category,
+                    Order.amount,
+                    Order.status,
+                    Order.order_date,
+                )
+                .where(Order.id > last_id)
                 .order_by(Order.id)
                 .limit(chunk_size)
-                .all()
             )
-
+            orders = db.execute(statement).all()
             if not orders:
                 break
 
             for order in orders:
                 sheet.append([
-                    order.id,
-                    order.user_name,
-                    order.product_name,
-                    order.category,
-                    order.amount,
-                    order.status,
+                    order.id, order.user_name, order.product_name,
+                    order.category, order.amount, order.status,
                     self._format_datetime(order.order_date),
                 ])
 
             processed_rows += len(orders)
             last_id = orders[-1].id
-
-            progress = (
-                int(processed_rows / total_rows * 100)
-                if total_rows > 0
-                else 100
-            )
-
+            progress = 100 if total_rows == 0 else int(processed_rows * 100 / total_rows)
             if progress > last_progress:
-                job.processed_rows = processed_rows
-                job.progress = progress
-                self.job_repository.save(db, job)
-
-                # sse_manager.send(job.id, {
-                #     "job_id": job.id,
-                #     "status": (
-                #         job.status.value
-                #         if hasattr(job.status, "value")
-                #         else str(job.status)
-                #     ),
-                #     "progress": progress,
-                #     "processed_rows": processed_rows,
-                #     "total_rows": total_rows,
-                # })
-
+                self._save_progress(db, job, processed_rows, total_rows)
                 last_progress = progress
 
-            
-
-        job.processed_rows = processed_rows
-        job.progress = 100
-        self.job_repository.save(db, job)
-
-
-
-        return self._save_workbook(workbook)
-
-    def _save_workbook(self, workbook: Workbook) -> str:
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_file:
-            temp_file_path = temp_file.name
+            file_path = temp_file.name
+        workbook.save(file_path)
+        return file_path
 
-        # workbook.save(temp_file_path)
+    @staticmethod
+    def _save_progress(db: Session, job: Job, processed_rows: int, total_rows: int) -> None:
+        job.processed_rows = processed_rows
+        job.total_rows = total_rows
+        job.progress = 100 if total_rows == 0 else int(processed_rows * 100 / total_rows)
+        db.commit()
+        db.refresh(job)
+        publish_job_event(job)
 
-        return temp_file_path
-
-    def _format_datetime(self, value) -> str:
-        if value is None:
-            return ""
-
-        return value.strftime("%Y-%m-%d %H:%M:%S")
-    
-
-    # 비동기
-
-    # async def create_excel_async(self, job_id: int) -> str:
-    #     workbook = Workbook(write_only=True)
-    #     sheet = workbook.create_sheet("Orders")
-
-    #     sheet.append([
-    #         "주문번호",
-    #         "주문자",
-    #         "상품명",
-    #         "카테고리",
-    #         "금액",
-    #         "상태",
-    #         "주문일",
-    #     ])
-
-    #     with SessionLocal() as db:
-    #         total_rows = db.query(Order).count()
-
-    #         job = db.get(Job, job_id)
-    #         job.total_rows = total_rows
-    #         job.processed_rows = 0
-    #         job.progress = 0
-    #         db.commit()
-
-    #     last_id = 0
-    #     processed_rows = 0
-    #     last_progress = 0
-    #     chunk_size = 1000
-
-    #     while True:
-    #         orders = await asyncio.to_thread(
-    #             self._load_order_chunk,
-    #             last_id,
-    #             chunk_size,
-    #         )
-
-    #         if not orders:
-    #             break
-
-    #         await asyncio.to_thread(
-    #             self._append_orders,
-    #             sheet,
-    #             orders,
-    #         )
-
-    #         processed_rows += len(orders)
-    #         last_id = orders[-1]["id"]
-
-    #         progress = (
-    #             int(processed_rows / total_rows * 100)
-    #             if total_rows > 0
-    #             else 100
-    #         )
-
-    #         if progress > last_progress:
-    #             await asyncio.to_thread(
-    #                 self._save_progress,
-    #                 job_id,
-    #                 processed_rows,
-    #                 progress,
-    #             )
-    #             last_progress = progress
-
-    #         # FastAPI 이벤트 루프에 다른 요청을 처리할 기회를 줌
-    #         await asyncio.sleep(0)
-
-    #     file_path = tempfile.mktemp(suffix=".xlsx")
-
-    #     # workbook.save()도 오래 걸리는 동기 작업
-    #     await asyncio.to_thread(
-    #         workbook.save,
-    #         file_path,
-    #     )
-
-    #     await asyncio.to_thread(
-    #         self._save_progress,
-    #         job_id,
-    #         processed_rows,
-    #         100,
-    #     )
-
-    #     return file_path
-    
-    # def _load_order_chunk(
-    #     self,
-    #     last_id: int,
-    #     chunk_size: int,
-    # ) -> list[dict]:
-    #     with SessionLocal() as db:
-    #         orders = (
-    #             db.query(Order)
-    #             .filter(Order.id > last_id)
-    #             .order_by(Order.id)
-    #             .limit(chunk_size)
-    #             .all()
-    #         )
-
-    #         return [
-    #             {
-    #                 "id": order.id,
-    #                 "user_name": order.user_name,
-    #                 "product_name": order.product_name,
-    #                 "category": order.category,
-    #                 "amount": order.amount,
-    #                 "status": order.status,
-    #                 "order_date": order.order_date,
-    #             }
-    #             for order in orders
-    #         ]
-        
-    # def _append_orders(
-    #     self,
-    #     sheet,
-    #     orders: list[dict],
-    # ) -> None:
-    #     for order in orders:
-    #         sheet.append([
-    #             order["id"],
-    #             order["user_name"],
-    #             order["product_name"],
-    #             order["category"],
-    #             order["amount"],
-    #             order["status"],
-    #             self._format_datetime(order["order_date"]),
-    #         ])
-
-    # def _save_progress(
-    #     self,
-    #     job_id: int,
-    #     processed_rows: int,
-    #     progress: int,
-    # ) -> None:
-    #     with SessionLocal() as db:
-    #         job = db.get(Job, job_id)
-
-    #         if job is None:
-    #             return
-
-    #         job.processed_rows = processed_rows
-    #         job.progress = progress
-    #         db.commit()
+    @staticmethod
+    def _format_datetime(value) -> str:
+        return "" if value is None else value.strftime("%Y-%m-%d %H:%M:%S")
