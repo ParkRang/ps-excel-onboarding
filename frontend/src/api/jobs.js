@@ -1,4 +1,4 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
 async function request(path, options) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -6,18 +6,20 @@ async function request(path, options) {
     ...options,
   })
 
+  const contentType = response.headers.get('content-type') || ''
+  const isJson = contentType.includes('application/json')
+  const body = isJson ? await response.json() : null
+
   if (!response.ok) {
-    let detail = ''
-    try {
-      const body = await response.json()
-      detail = body.detail || body.message || ''
-    } catch {
-      // JSON이 아닌 오류 응답은 상태 코드만 사용합니다.
-    }
+    const detail = body?.detail || body?.message
     throw new Error(detail || `요청에 실패했습니다. (${response.status})`)
   }
 
-  return response.json()
+  if (!isJson) {
+    throw new Error('API가 JSON 대신 다른 형식으로 응답했습니다. 백엔드 주소를 확인해주세요.')
+  }
+
+  return body
 }
 
 export function getJobs() {
