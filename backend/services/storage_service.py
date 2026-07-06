@@ -1,7 +1,6 @@
 from google.cloud import storage
 
 from core.config import Settings
-from datetime import timedelta
 
 
 class GCSClient:
