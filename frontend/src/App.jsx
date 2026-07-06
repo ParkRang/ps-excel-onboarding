@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
-import { createExportJob, getJobs } from './api/jobs'
+import { API_BASE_URL, createExportJob, getJobs } from './api/jobs'
 import './App.css'
 
 const STATUS_LABEL = {
@@ -55,7 +55,6 @@ function DownloadLink({ job }) {
 function App() {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
 
   const requestIdRef = useRef(0)
@@ -95,17 +94,6 @@ function App() {
   }
 }, [])
 
-  // const loadJobs = useCallback(async ({ silent = false } = {}) => {
-  //   if (!silent) setLoading(true)
-  //   try {
-  //     setJobs(await getJobs())
-  //     setError('')
-  //   } catch (requestError) {
-  //     setError(requestError.message)
-  //   } finally {
-  //     if (!silent) setLoading(false)
-  //   }
-  // }, [])
 
   useEffect(() => {
     let active = true
@@ -128,58 +116,31 @@ function App() {
     }
   }, [])
 
-  const hasActiveJob = jobs.some(({ status }) => status === 'PENDING' || status === 'PROCESSING')
-
-
-  // Polling : 
   useEffect(() => {
-    if (!hasActiveJob) return undefined
-    const timer = window.setInterval(() => loadJobs({ silent: true }), 2000)
-    return () => window.clearInterval(timer)
-  }, [hasActiveJob, loadJobs])
+    const eventSource = new EventSource(`${API_BASE_URL}/jobs/events`)
 
+    eventSource.addEventListener('job', (event) => {
+      const updatedJob = JSON.parse(event.data)
 
-  // SSE : 
-//   useEffect(() => {
-//   const activeJobs = jobs.filter(
-//     ({ status }) => status === 'PENDING' || status === 'PROCESSING'
-//   )
+      setJobs((previousJobs) => {
+        const exists = previousJobs.some((job) => job.job_id === updatedJob.job_id)
+        if (!exists) return [updatedJob, ...previousJobs]
 
-//   if (activeJobs.length === 0) return undefined
+        return previousJobs.map((job) =>
+          job.job_id === updatedJob.job_id
+            ? { ...job, ...updatedJob }
+            : job
+        )
+      })
+    })
 
-//   const eventSources = activeJobs.map((job) => {
-//     const eventSource = new EventSource(`${API_BASE_URL}/jobs/${job.job_id}/events`)
+    eventSource.onopen = () => {
+      loadJobs({ silent: true })
+    }
 
-//     eventSource.addEventListener('job-progress', (event) => {
-//       const updatedJob = JSON.parse(event.data)
+    return () => eventSource.close()
+  }, [loadJobs])
 
-//       setJobs((prevJobs) =>
-//         prevJobs.map((prevJob) =>
-//           prevJob.job_id === updatedJob.job_id
-//             ? { ...prevJob, ...updatedJob }
-//             : prevJob
-//         )
-//       )
-
-//       if (updatedJob.status === 'DONE' || updatedJob.status === 'FAILED') {
-//         eventSource.close()
-//       }
-//     })
-
-//     eventSource.onerror = async () => {
-//       eventSource.close()
-
-//       // SSE 연결 실패 시 기존 조회 API로 한 번 복구
-//       await loadJobs({ silent: true })
-//     }
-
-//     return eventSource
-//   })
-
-//   return () => {
-//     eventSources.forEach((eventSource) => eventSource.close())
-//   }
-// }, [jobs, loadJobs])
 
   const summary = useMemo(() => ({
     total: jobs.length,
@@ -189,15 +150,12 @@ function App() {
   }), [jobs])
 
   async function handleCreate() {
-    setCreating(true)
     setError('')
     try {
       await createExportJob()
       await loadJobs({ silent: true })
     } catch (requestError) {
       setError(requestError.message)
-    } finally {
-      setCreating(false)
     }
   }
 
@@ -209,8 +167,8 @@ function App() {
           <h1>주문 엑셀 내보내기</h1>
           <p className="description">주문 데이터를 엑셀 파일로 생성하고 진행 상태를 확인합니다.</p>
         </div>
-        <button className="primary-button" onClick={handleCreate} disabled={creating}>
-          {creating ? '요청 중…' : '새 엑셀 만들기'}
+        <button className="primary-button" onClick={handleCreate}>
+          새 엑셀 만들기
         </button>
       </header>
 
