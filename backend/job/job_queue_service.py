@@ -1,7 +1,10 @@
+import logging
+
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from common.enums.job_status import JobStatus
+from core.logging import event_logger
 from db.database import SessionLocal
 from job.job import Job
 from job.job_events import publish_job_event
@@ -35,6 +38,10 @@ class JobQueueService:
             for queue_item in completed_items:
                 db.delete(queue_item)
             db.commit()
+            event_logger(
+                "Queue recovery completed",
+                removed_completed_count=len(completed_items),
+            )
             return self.dispatch_head(db)
 
     def dispatch_head(self, db: Session) -> int | None:
@@ -57,6 +64,11 @@ class JobQueueService:
             for completed_item in completed_items:
                 db.delete(completed_item)
             db.flush()
+            if completed_items:
+                event_logger(
+                    "Stale completed queue rows removed",
+                    job_ids=[item.job_id for item in completed_items],
+                )
 
             active = db.scalar(
                 select(JobQueue)
@@ -65,6 +77,11 @@ class JobQueueService:
             )
             if active is not None:
                 db.commit()
+                event_logger(
+                    "Queue dispatch skipped; active item exists",
+                    queue_job_id=active.job_id,
+                    queue_status=active.status,
+                )
                 return None
 
             queue_item = db.scalar(
@@ -76,8 +93,10 @@ class JobQueueService:
             )
             if queue_item is None:
                 db.commit()
+                event_logger("Queue dispatch skipped; no waiting item")
                 return None
 
+            event_logger("Cloud Task enqueue started", job_id=queue_item.job_id)
             task_name = self.cloud_tasks.enqueue(queue_item.job_id)
             queue_item.status = QueueStatus.DISPATCHED
             job = db.get(Job, queue_item.job_id)
@@ -88,7 +107,17 @@ class JobQueueService:
             if job is not None:
                 db.refresh(job)
                 publish_job_event(job)
+            event_logger(
+                "Cloud Task dispatched",
+                job_id=queue_item.job_id,
+                task_name=task_name,
+            )
             return queue_item.job_id
-        except Exception:
+        except Exception as error:
             db.rollback()
+            event_logger(
+                "Queue dispatch failed",
+                level=logging.ERROR,
+                error=str(error),
+            )
             raise
