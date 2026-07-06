@@ -1,17 +1,16 @@
 import os
+import logging
 
-from sqlalchemy import select, text
+from sqlalchemy import select, update
 
 from db.database import SessionLocal
+from core.logging import event_logger
 from excel.excel_service import ExcelService
 from job.job import Job
 from job.job_queue import JobQueue, QueueStatus
 from job.job_queue_service import JobQueueService
 from job.job_service import JobService
 from services.storage_service import GCSClient
-
-
-WORKER_LOCK_ID = 824_2026
 
 
 class WorkerBusyError(Exception):
@@ -32,27 +31,53 @@ class WorkerService:
         queue_item = None
         job = None
         local_file_path = None
-        lock_acquired = False
         processing_completed = False
 
         try:
-            lock_acquired = bool(
-                db.scalar(text("SELECT pg_try_advisory_lock(:lock_id)"), {"lock_id": WORKER_LOCK_ID})
-            )
-            if not lock_acquired:
-                raise WorkerBusyError("Another Excel worker is already running")
-
+            event_logger("Worker request received", requested_job_id=requested_job_id)
             queue_item = db.scalar(select(JobQueue).order_by(JobQueue.job_id).limit(1))
             if queue_item is None:
+                event_logger("Queue is empty", requested_job_id=requested_job_id)
                 return None
 
+            event_logger(
+                "Queue head selected",
+                requested_job_id=requested_job_id,
+                queue_job_id=queue_item.job_id,
+                queue_status=queue_item.status,
+            )
+
             if queue_item.job_id != requested_job_id:
+                event_logger(
+                    "Stale task ignored",
+                    level=logging.WARNING,
+                    requested_job_id=requested_job_id,
+                    queue_job_id=queue_item.job_id,
+                )
                 if queue_item.status == QueueStatus.WAITING:
                     self.queue.dispatch_head(db)
                 return None
 
-            queue_item.status = QueueStatus.PROCESSING
+            claim_result = db.execute(
+                update(JobQueue)
+                .where(
+                    JobQueue.id == queue_item.id,
+                    JobQueue.status == QueueStatus.DISPATCHED,
+                )
+                .values(status=QueueStatus.PROCESSING)
+                .execution_options(synchronize_session=False)
+            )
             db.commit()
+            if claim_result.rowcount != 1:
+                event_logger(
+                    "Queue item claim busy",
+                    level=logging.WARNING,
+                    requested_job_id=requested_job_id,
+                    queue_job_id=queue_item.job_id,
+                )
+                raise WorkerBusyError("Queue head is already being processed")
+            db.refresh(queue_item)
+            event_logger("Queue item claimed", job_id=queue_item.job_id)
 
             job = db.get(Job, queue_item.job_id)
             if job is None:
@@ -62,21 +87,34 @@ class WorkerService:
                 return None
 
             self.jobs.start_job(db, job)
+            event_logger("Excel generation started", job_id=job.id)
             local_file_path = self.excel.create_excel(db, job)
+            event_logger("Excel file created", job_id=job.id, local_file_path=local_file_path)
             if self.storage is None:
                 self.storage = GCSClient()
+            event_logger("GCS upload started", job_id=job.id)
             upload = self.storage.upload(local_file_path, job.id)
+            event_logger("GCS upload completed", job_id=job.id, object_name=upload["object_name"])
             # Job DONE and queue removal must succeed in the same commit.
             db.delete(queue_item)
             self.jobs.complete_job(db, job, upload)
             processing_completed = True
+            event_logger("Job and queue committed", job_id=job.id)
 
             # Only after the current queue row is gone can the next Task exist.
-            self.queue.dispatch_head(db)
+            next_job_id = self.queue.dispatch_head(db)
+            event_logger("Next queue dispatch checked", job_id=job.id, next_job_id=next_job_id)
             return job.id
         except WorkerBusyError:
             raise
         except Exception as error:
+            event_logger(
+                "Worker processing failed",
+                level=logging.ERROR,
+                requested_job_id=requested_job_id,
+                job_id=job.id if job is not None else None,
+                error=str(error),
+            )
             db.rollback()
             if not processing_completed and queue_item is not None:
                 queue_item = db.get(JobQueue, queue_item.id)
@@ -90,13 +128,4 @@ class WorkerService:
         finally:
             if local_file_path and os.path.exists(local_file_path):
                 os.remove(local_file_path)
-            if lock_acquired:
-                try:
-                    db.execute(
-                        text("SELECT pg_advisory_unlock(:lock_id)"),
-                        {"lock_id": WORKER_LOCK_ID},
-                    )
-                    db.commit()
-                except Exception:
-                    db.rollback()
             db.close()
