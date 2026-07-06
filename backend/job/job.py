@@ -1,4 +1,3 @@
-from zoneinfo import ZoneInfo
 from datetime import datetime
 
 from sqlalchemy import CheckConstraint, DateTime, Enum, Integer, String, Text
