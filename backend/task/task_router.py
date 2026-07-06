@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
+from core.logging import event_logger
 from excel.worker_service import WorkerBusyError, WorkerService
 from task.task_request import TaskRequest
 
@@ -10,6 +11,7 @@ worker = WorkerService()
 
 @router.post("/excel")
 def export_task(request: TaskRequest):
+    event_logger("Cloud Task callback received", requested_job_id=request.job_id)
     try:
         processed_job_id = worker.process_queued_job(request.job_id)
     except WorkerBusyError as error:
@@ -19,6 +21,11 @@ def export_task(request: TaskRequest):
     # Verify the chain in a fresh DB session after the worker transaction.
     # This also repairs a DONE Job whose queue row survived an interrupted request.
     worker.queue.recover_and_dispatch()
+    event_logger(
+        "Cloud Task callback completed",
+        requested_job_id=request.job_id,
+        processed_job_id=processed_job_id,
+    )
 
     return {
         "status": "ok",
