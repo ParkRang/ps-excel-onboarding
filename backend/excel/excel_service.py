@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from job.job import Job
 from job.job_events import publish_job_event
+from core.logging import event_logger
 from order.order import Order
 
 
@@ -24,6 +25,14 @@ class ExcelService:
         last_id = 0
         processed_rows = 0
         last_progress = 0
+        last_logged_progress = 0
+
+        event_logger(
+            "Excel rows processing initialized",
+            job_id=job.id,
+            total_rows=total_rows,
+            chunk_size=chunk_size,
+        )
 
         while True:
             statement = (
@@ -57,10 +66,20 @@ class ExcelService:
             if progress > last_progress:
                 self._save_progress(db, job, processed_rows, total_rows)
                 last_progress = progress
+                if progress >= last_logged_progress + 10 or progress == 100:
+                    event_logger(
+                        "Excel generation progress",
+                        job_id=job.id,
+                        progress=progress,
+                        processed_rows=processed_rows,
+                        total_rows=total_rows,
+                    )
+                    last_logged_progress = progress
 
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_file:
             file_path = temp_file.name
         workbook.save(file_path)
+        event_logger("Excel workbook saved", job_id=job.id, file_path=file_path)
         return file_path
 
     @staticmethod
