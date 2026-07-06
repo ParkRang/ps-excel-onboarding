@@ -1,179 +1,82 @@
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from common.enums.job_status import JobStatus
 from common.utils.now import now
+from core.logging import complete_logger, fail_logger, start_logger
 from job.job import Job
-from job.job_repository import JobRepository
-from job.job_response import JobResponse
-from task.task_service import CloudTaskService
+from job.job_events import publish_job_event
+from job.job_queue_service import JobQueueService
 from webhook.webhook_service import WebhookService
-from core.logging import start_logger
-from core.logging import complete_logger
-from core.logging import fail_logger
+
 
 class JobService:
+    """Job persistence and state transitions in one place."""
 
     def __init__(self):
-        self.job_repository = JobRepository()
-        self.cloud_task_service = CloudTaskService()
-        self.webhook_service = WebhookService()
+        self.queue = JobQueueService()
+        self.webhook = WebhookService()
 
     def create_export(self, db: Session) -> Job:
-        """
-        Job을 생성하고 Cloud Tasks에 작업을 등록합니다.
-        """
-        job = Job(
-            status=JobStatus.PENDING,
-            progress=0,
-        )
+        job = Job(status=JobStatus.PENDING, progress=0)
+        try:
+            db.add(job)
+            db.flush()
+            self.queue.add(db, job.id)
+            db.commit()
+            db.refresh(job)
+            publish_job_event(job)
+            self.queue.dispatch_head(db)
+            db.refresh(job)
+            return job
+        except Exception:
+            db.rollback()
+            raise
 
-        job = self.job_repository.save(db, job)
+    def get_job(self, db: Session, job_id: int) -> Job | None:
+        return db.get(Job, job_id)
 
-        task_name = self.cloud_task_service.enqueue(job.id)
-        job.task_name = task_name
+    def get_jobs(self, db: Session) -> list[Job]:
+        return list(db.scalars(select(Job).order_by(Job.id.desc())).all())
 
-        return job
-
-    def get_job(
-        self,
-        db: Session,
-        job_id: int,
-    ) -> Job | None:
-        return self.job_repository.find_by_id(db, job_id)
-
-    # def get_jobs(
-    #     self,
-    #     db: Session,
-    # ) -> list[Job]:
-    #     return self.job_repository.find_all(db)
-
-    def get_jobs(
-        self,
-        db: Session,
-    ) -> list[JobResponse]:
-
-        jobs = self.job_repository.find_all(db)
-
-        return [
-            JobResponse(
-                job_id=job.id,
-                status=job.status,
-                progress=job.progress,
-                processed_rows=job.processed_rows,
-                total_rows=job.total_rows,
-                requested_at=job.requested_at,
-                started_at=job.started_at,
-                completed_at=job.completed_at,
-                failed_at=job.failed_at,
-                duration_seconds=job.duration_seconds,
-                gcs_object_name=job.gcs_object_name,
-                gcs_url=job.gcs_url,
-                download_url=job.download_url,
-                error_message=job.error_message,
-                task_name=job.task_name,
-                attempt_count=job.attempt_count,
-            )
-            for job in jobs
-        ]
-
-    def start_job(
-        self,
-        db: Session,
-        job: Job,
-    ) -> Job:
+    def start_job(self, db: Session, job: Job) -> Job:
         job.status = JobStatus.PROCESSING
         job.started_at = now()
         job.attempt_count += 1
         job.progress = 0
         job.error_message = None
-
         start_logger(job_id=job.id, started_at=job.started_at)
+        return self._save(db, job)
 
-        return self.job_repository.save(db, job)
-
-    # def update_progress(
-    #     self,
-    #     db: Session,
-    #     job: Job,
-    #     progress: int,
-    # ) -> Job:
-    #     job.progress = min(progress, 99)
-
-    #     return self.job_repository.save(db, job)
-
-    def complete_job(
-        self,
-        db: Session,
-        job: Job,
-        gcs_object_name: str,
-        gcs_url: str,
-        download_url: str,
-    ) -> Job:
+    def complete_job(self, db: Session, job: Job, upload: dict) -> Job:
         job.status = JobStatus.DONE
         job.progress = 100
         job.completed_at = now()
         if job.started_at:
-            job.duration_seconds = (
-            job.completed_at - job.started_at
-        ).total_seconds()
-        job.gcs_object_name = gcs_object_name
-        job.gcs_url = gcs_url
-        job.download_url = download_url
-        
-        complete_logger(
-            job_id=job.id,
-            completed_at=job.completed_at,
-            duration_seconds=job.duration_seconds,
-            gcs_url=job.gcs_url,
-            
-        )
+            job.duration_seconds = (job.completed_at - job.started_at).total_seconds()
+        job.gcs_object_name = upload["object_name"]
+        job.gcs_url = upload["gcs_url"]
+        job.download_url = upload["download_url"]
+        saved_job = self._save(db, job)
+        complete_logger(job_id=job.id, completed_at=job.completed_at,
+                        duration_seconds=job.duration_seconds, gcs_url=job.gcs_url)
+        self.webhook.send_success_message(job.id, job.completed_at, job.download_url)
+        return saved_job
 
-        WebhookService.send_success_message(
-            self.webhook_service,
-            job_id=job.id,
-            completed_at=job.completed_at,
-            download_url=job.download_url,
-        )
-
-        return self.job_repository.save(db, job)
-
-    def fail_job(
-        self,
-        db: Session,
-        job: Job,
-        error: Exception,
-    ) -> Job:
+    def fail_job(self, db: Session, job: Job, error: Exception) -> Job:
         job.status = JobStatus.FAILED
         job.failed_at = now()
-        job.error_message = str(error)
+        job.error_message = str(error)[:4000]
+        saved_job = self._save(db, job)
+        fail_logger(job_id=job.id, failed_at=job.failed_at, error_message=job.error_message)
+        self.webhook.send_failure_message(job.id, job.error_message)
+        return saved_job
 
-        fail_logger(
-            job_id=job.id,
-            failed_at=job.failed_at,
-            error_message=job.error_message,
-        )
-
-        WebhookService.send_failure_message(
-            self.webhook_service,
-            job_id=job.id,
-            error_message=job.error_message,
-        )
-
-        return self.job_repository.save(db, job)
-    
-    
-    # async def get_jobs_async(
-    #     self,
-    #     db: AsyncSession,
-    # ):
-    #     return await self.job_repository.find_all_async(db)
-    
-    # async def get_job_async(
-    #     self,
-    #     db: AsyncSession,
-    #     job_id: int,
-    # ) -> Job | None:
-    #     return await self.job_repository.find_by_id_async(
-    #         db=db,
-    #         job_id=job_id,
-    #     )
+    @staticmethod
+    def _save(db: Session, job: Job) -> Job:
+        db.add(job)
+        db.flush()
+        db.commit()
+        db.refresh(job)
+        publish_job_event(job)
+        return job
