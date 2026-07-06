@@ -15,6 +15,11 @@ def export_task(request: TaskRequest):
     except WorkerBusyError as error:
         # A non-2xx response asks Cloud Tasks to retry this wake-up signal.
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+    # Verify the chain in a fresh DB session after the worker transaction.
+    # This also repairs a DONE Job whose queue row survived an interrupted request.
+    worker.queue.recover_and_dispatch()
+
     return {
         "status": "ok",
         "requested_job_id": request.job_id,
