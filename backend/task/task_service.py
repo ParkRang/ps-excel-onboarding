@@ -10,13 +10,14 @@ class CloudTaskService:
 
     def __init__(self):
         self.settings = Settings()
+        self.client = None
 
     def enqueue(self, job_id: int) -> str:
 
-        # 메서드 실행 시점에 client를 생성합니다.
-        client = tasks_v2.CloudTasksClient()
+        if self.client is None:
+            self.client = tasks_v2.CloudTasksClient()
 
-        queue_path = client.queue_path(
+        queue_path = self.client.queue_path(
             self.settings.GCP_PROJECT_ID,
             self.settings.GCP_LOCATION,
             self.settings.GCP_TASKS_QUEUE_NAME,
@@ -53,7 +54,7 @@ class CloudTaskService:
             ),
         }
 
-        created_task = client.create_task(
+        created_task = self.client.create_task(
             parent=queue_path,
             task=task,
         )
