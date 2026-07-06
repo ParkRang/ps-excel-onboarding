@@ -1,142 +1,102 @@
-import logging, asyncio
-from time import perf_counter
+import os
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select, text
 
-from db.session import SessionLocal
-from job.job_service import JobService
-# from order.order_repository import OrderRepository
+from db.database import SessionLocal
 from excel.excel_service import ExcelService
+from job.job import Job
+from job.job_queue import JobQueue, QueueStatus
+from job.job_queue_service import JobQueueService
+from job.job_service import JobService
 from services.storage_service import GCSClient
-from job.job_repository import JobRepository
-# from core.sse_manager import sse_manager
 
 
-logger = logging.getLogger(__name__)
+WORKER_LOCK_ID = 824_2026
+
+
+class WorkerBusyError(Exception):
+    pass
 
 
 class WorkerService:
+    """Process the queue head, then dispatch exactly one next Cloud Task."""
 
     def __init__(self):
-        self.job_service = JobService()
-        # self.order_repository = OrderRepository()
-        self.excel_service = ExcelService()
-        self.storage_service = GCSClient()
-        # self.job_repository = JobRepository()
+        self.jobs = JobService()
+        self.queue = JobQueueService()
+        self.excel = ExcelService()
+        self.storage = None
 
-
-    def process_job(self, job_id: int):
+    def process_queued_job(self, requested_job_id: int) -> int | None:
         db = SessionLocal()
+        queue_item = None
+        job = None
+        local_file_path = None
+        lock_acquired = False
+        processing_completed = False
 
         try:
-            job = self.job_service.get_job(db, job_id)
-
-            self.job_service.start_job(db, job)
-            
-            local_file_path = self.excel_service.create_excel(
-                db=db,
-                job=job,
+            lock_acquired = bool(
+                db.scalar(text("SELECT pg_try_advisory_lock(:lock_id)"), {"lock_id": WORKER_LOCK_ID})
             )
-            # gcs_object_name = self.storage_service.upload(
-            #     local_file_path=local_file_path,
-            #     job_id=job.id,
-            # )
+            if not lock_acquired:
+                raise WorkerBusyError("Another Excel worker is already running")
 
-            upload_result = self.storage_service.upload(
-                local_file_path=local_file_path,
-                job_id=job.id,
-            )
+            queue_item = db.scalar(select(JobQueue).order_by(JobQueue.job_id).limit(1))
+            if queue_item is None:
+                return None
 
-            self.job_service.complete_job(
-                db=db,
-                job=job,
-                gcs_object_name=upload_result["object_name"],
-                gcs_url=upload_result["gcs_url"],
-                download_url=upload_result["download_url"]
-            )
+            if queue_item.job_id != requested_job_id:
+                if queue_item.status == QueueStatus.WAITING:
+                    self.queue.dispatch_head(db)
+                return None
 
-            # sse_manager.send(job.id, {
-            #     "job_id": job.id,
-            #     "status": "DONE",
-            #     "progress": 100,
-            #     "processed_rows": job.processed_rows,
-            #     "total_rows": job.total_rows,
-            #     "download_url": job.download_url,
-            #     "gcs_url": job.gcs_url,
-            # })
+            queue_item.status = QueueStatus.PROCESSING
+            db.commit()
 
+            job = db.get(Job, queue_item.job_id)
+            if job is None:
+                db.delete(queue_item)
+                db.commit()
+                self.queue.dispatch_head(db)
+                return None
+
+            self.jobs.start_job(db, job)
+            local_file_path = self.excel.create_excel(db, job)
+            if self.storage is None:
+                self.storage = GCSClient()
+            upload = self.storage.upload(local_file_path, job.id)
+            # Job DONE and queue removal must succeed in the same commit.
+            db.delete(queue_item)
+            self.jobs.complete_job(db, job, upload)
+            processing_completed = True
+
+            # Only after the current queue row is gone can the next Task exist.
+            self.queue.dispatch_head(db)
+            return job.id
+        except WorkerBusyError:
+            raise
         except Exception as error:
             db.rollback()
-
-            if "job" in locals() and job is not None:
-                self.job_service.fail_job(
-                    db=db,
-                    job=job,
-                    error=error,
-                )
-
-                # sse_manager.send(job.id, {
-                #     "job_id": job.id,
-                #     "status": "FAILED",
-                #     "progress": job.progress,
-                #     "processed_rows": job.processed_rows,
-                #     "total_rows": job.total_rows,
-                #     "error_message": job.error_message,
-                # })
-
+            if not processing_completed and queue_item is not None:
+                queue_item = db.get(JobQueue, queue_item.id)
+                if queue_item is not None:
+                    queue_item.status = QueueStatus.DISPATCHED
+                if job is not None:
+                    self.jobs.fail_job(db, job, error)
+                else:
+                    db.commit()
             raise
-
         finally:
+            if local_file_path and os.path.exists(local_file_path):
+                os.remove(local_file_path)
+            if lock_acquired:
+                try:
+                    db.execute(
+                        text("SELECT pg_advisory_unlock(:lock_id)"),
+                        {"lock_id": WORKER_LOCK_ID},
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
             db.close()
-
-            # async def process_job_async(self, job_id: int) -> None:
-    #     db = SessionLocal()
-    #     job = None
-
-    #     try:
-    #         job = self.job_service.get_job(db, job_id)
-
-    #         if job is None:
-    #             raise ValueError(f"Job not found: {job_id}")
-
-    #         self.job_service.start_job(db, job)
-
-    #         local_file_path = await self.excel_service.create_excel_async(
-    #             job_id=job.id,
-    #         )
-
-    #         # GCS 업로드도 동기 함수라면 이벤트 루프 밖에서 실행
-    #         gcs_url = await asyncio.to_thread(
-    #             self.storage_service.upload,
-    #             local_file_path,
-    #             job_id=job.id,
-    #         )
-
-    #         upload_result = self.storage_service.upload(
-    #             local_file_path=local_file_path,
-    #             job_id=job.id,
-    #         )
-
-    #         self.job_service.complete_job(
-    #             db=db,
-    #             job=job,
-    #             gcs_object_name=upload_result["object_name"],
-    #             gcs_url=upload_result["gcs_url"],
-    #             download_url=upload_result["download_url"]
-    #         )
-
-
-    #     except Exception as exc:
-    #         db.rollback()
-
-    #         if job is not None:
-    #             self.job_service.fail_job(
-    #                 db=db,
-    #                 job=job,
-    #                 error=exc,
-    #             )
-
-    #         raise
-
-    #     finally:
-    #         db.close()
