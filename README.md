@@ -11,27 +11,74 @@
     - 기능이 완성될 시 디스코드 메시지로 알림을 제공합니다.
 
 3. 아키텍처 다이어그램
+```mermaid
+flowchart LR
+    F["React 프런트엔드"]
+    API["FastAPI 백엔드"]
+    DB[("PostgreSQL")]
+    CT["Google Cloud Tasks"]
+    W["Excel Worker"]
+    GCS["Google Cloud Storage"]
+    SSE["SSE 이벤트 스트림"]
 
+    F -->|"POST /create"| API
+    API -->|"Job 저장"| DB
+    API -->|"Queue 행 저장"| DB
+    API -->|"맨 앞 작업만 등록"| CT
 
-4. 텍스트 흐름도
+    CT -->|"POST /tasks/excel"| W
+    W -->|"Queue 및 Job 조회"| DB
+    W -->|"진행률 저장"| DB
+    W -->|"엑셀 업로드"| GCS
+    W -->|"완료 및 Queue 삭제"| DB
+    W -->|"다음 작업 등록"| CT
 
+    DB -->|"상태 변경 감지"| SSE
+    SSE -->|"진행률 이벤트"| F
+```
+
+4. 흐름도
+```mermaid
+sequenceDiagram
+    participant U as 사용자
+    participant F as 프런트엔드
+    participant API as FastAPI
+    participant DB as PostgreSQL
+    participant CT as Cloud Tasks
+
+    U->>F: 새 엑셀 만들기
+    F->>API: POST /create
+
+    API->>DB: Job 생성
+    API->>DB: JobQueue 생성
+    DB-->>API: Job ID 반환
+
+    API->>DB: 실행 중 Queue 확인
+
+    alt 실행 중인 작업이 없음
+        API->>DB: 가장 작은 WAITING 조회
+        API->>CT: 해당 Job의 Task 생성
+        API->>DB: Queue를 DISPATCHED로 변경
+    else 실행 중인 작업이 있음
+        API->>API: Cloud Task를 추가하지 않음
+    end
+
+    API-->>F: 202 Accepted
+```
 
 5. 포함 항목
  - Cloud Tasks 순차 처리 설정 방법 및 선택 이유
-    실행 중인 태스크를 1개로 제한하였습니다. 또한 큐가 태스크를 서버로 보내는 동시에 실행 중인 태스크를 최대 1개로 제한하였습니다.
-    첫 번째 태스크 요청이 완료되어 응답을 받아야 다음 태스크를 보낼 수 있으므로, 순차 처리의 방식이 되었습니다.
-    --max-dispatches-per-second=1
+   DB를 통해 새로운 큐를 만들어서 순차 처리를 보장할 수 있도록 하였습니다. DB에 먼저 job_id를 바탕으로 정렬하여, 데이터의 상태에 따라 값을 처리할 수 있도록 하였습니다.    
 
-큐가 태스크를 대상 서버로 보내는 속도를 최대 초당 1개로 제한한다. 최초 요청뿐 아니라 실패 후 재시도 요청도 이 제한에 포함된다.
  - GCS 파일 접근 방식 선택 이유
-    사용자들이 쉽게 확인할 수 있도록 공개 URL을 활용하였습니다.
+    사용자들에게 제한된 접근을 위해 signed_URL을 활용하였습니다.
  - 프론트엔드 프레임워크 및 템플릿 선택 이유
     React를 사용하였습니다.
  - SSE vs 폴링 선택 이유
-    폴링을 선택하였습니다. SSE의 경우 진행도를 받아오는 과정에서 서버 부하가 많아져 429 상태 코드가 나오는 것을 확인하였습니다.
+    SSE의 경우 진행도를 받아오는 과정에서 서버 부하가 많아지지만, 실시간 적용이 가능하여 선택하였습니다.
  - 구현하지 못한 부분과 개선 방향
-    백엔드에서 데이터를 몰아받는 상황 발생 -> 엑셀 생성 시 jobs 반환이 pending 후 excel 생성 작업이 끝나고 한번에 갱신되는 문제가 발생하였습니다. 현재 max_instance를 늘리는 방식 외에는 개선할 방법을 확인하지 못했습니다.
-    
+    백엔드에서 데이터를 몰아받는 상황 발생 -> 엑셀 생성 시 엑셀 생성이 많은 자원을 차지하여 다른 기능이 멈추는 현상을 발견하였습니다.
+   
 
 
 
