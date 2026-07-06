@@ -44,6 +44,20 @@ class JobQueueService:
                 text("SELECT pg_advisory_xact_lock(:lock_id)"),
                 {"lock_id": DISPATCH_LOCK_ID},
             )
+
+            # A previous worker may have committed Job DONE immediately before
+            # terminating. Clean those stale queue rows on every dispatch.
+            completed_items = list(
+                db.scalars(
+                    select(JobQueue)
+                    .join(Job, Job.id == JobQueue.job_id)
+                    .where(Job.status == JobStatus.DONE)
+                ).all()
+            )
+            for completed_item in completed_items:
+                db.delete(completed_item)
+            db.flush()
+
             active = db.scalar(
                 select(JobQueue)
                 .where(JobQueue.status.in_([QueueStatus.DISPATCHED, QueueStatus.PROCESSING]))
