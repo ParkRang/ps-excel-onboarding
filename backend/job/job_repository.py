@@ -5,6 +5,8 @@ from job.job import Job
 from common.enums.job_status import JobStatus
 from common.utils.now import now
 
+from sqlalchemy import select
+
 
 class JobRepository:
     def save(self, db: Session, job: Job) -> Job:
@@ -144,3 +146,26 @@ class JobRepository:
         )
 
         db.commit()
+
+    # async def find_all_async(
+    #     self,
+    #     db: AsyncSession,
+    # ) -> list[Job]:
+    #     result = await db.execute(
+    #         select(Job)
+    #         .order_by(Job.id.desc())
+    #     )
+
+    #     return list(result.scalars().all())
+    
+    # async def find_by_id_async(
+    #     self,
+    #     db: AsyncSession,
+    #     job_id: int,
+    # ) -> Job | None:
+    #     result = await db.execute(
+    #         select(Job)
+    #         .where(Job.id == job_id)
+    #     )
+
+    #     return result.scalar_one_or_none()

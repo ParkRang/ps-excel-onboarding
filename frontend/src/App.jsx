@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { createExportJob, getJobs } from './api/jobs'
 import './App.css'
 
@@ -58,17 +58,54 @@ function App() {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
 
+  const requestIdRef = useRef(0)
+  const fetchingRef = useRef(false)
+
   const loadJobs = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true)
-    try {
-      setJobs(await getJobs())
-      setError('')
-    } catch (requestError) {
-      setError(requestError.message)
-    } finally {
-      if (!silent) setLoading(false)
+  if (fetchingRef.current) {
+    return
+  }
+
+  fetchingRef.current = true
+  const requestId = ++requestIdRef.current
+
+  if (!silent) {
+    setLoading(true)
+  }
+
+  try {
+    const data = await getJobs()
+
+    if (requestId !== requestIdRef.current) {
+      return
     }
-  }, [])
+
+    setJobs(data)
+    setError('')
+  } catch (requestError) {
+    if (requestId === requestIdRef.current) {
+      setError(requestError.message)
+    }
+  } finally {
+    fetchingRef.current = false
+
+    if (!silent && requestId === requestIdRef.current) {
+      setLoading(false)
+    }
+  }
+}, [])
+
+  // const loadJobs = useCallback(async ({ silent = false } = {}) => {
+  //   if (!silent) setLoading(true)
+  //   try {
+  //     setJobs(await getJobs())
+  //     setError('')
+  //   } catch (requestError) {
+  //     setError(requestError.message)
+  //   } finally {
+  //     if (!silent) setLoading(false)
+  //   }
+  // }, [])
 
   useEffect(() => {
     let active = true
@@ -94,7 +131,7 @@ function App() {
   const hasActiveJob = jobs.some(({ status }) => status === 'PENDING' || status === 'PROCESSING')
 
 
-  Polling : 
+  // Polling : 
   useEffect(() => {
     if (!hasActiveJob) return undefined
     const timer = window.setInterval(() => loadJobs({ silent: true }), 2000)

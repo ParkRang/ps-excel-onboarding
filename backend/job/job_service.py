@@ -11,7 +11,6 @@ from core.logging import start_logger
 from core.logging import complete_logger
 from core.logging import fail_logger
 
-
 class JobService:
 
     def __init__(self):
@@ -92,15 +91,15 @@ class JobService:
 
         return self.job_repository.save(db, job)
 
-    def update_progress(
-        self,
-        db: Session,
-        job: Job,
-        progress: int,
-    ) -> Job:
-        job.progress = min(progress, 99)
+    # def update_progress(
+    #     self,
+    #     db: Session,
+    #     job: Job,
+    #     progress: int,
+    # ) -> Job:
+    #     job.progress = min(progress, 99)
 
-        return self.job_repository.save(db, job)
+    #     return self.job_repository.save(db, job)
 
     def complete_job(
         self,
@@ -161,3 +160,20 @@ class JobService:
         )
 
         return self.job_repository.save(db, job)
+    
+    
+    # async def get_jobs_async(
+    #     self,
+    #     db: AsyncSession,
+    # ):
+    #     return await self.job_repository.find_all_async(db)
+    
+    # async def get_job_async(
+    #     self,
+    #     db: AsyncSession,
+    #     job_id: int,
+    # ) -> Job | None:
+    #     return await self.job_repository.find_by_id_async(
+    #         db=db,
+    #         job_id=job_id,
+    #     )

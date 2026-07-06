@@ -36,7 +36,7 @@ app.add_middleware(
 @app.get("/")
 def read_root():
     # push_test_task()
-    return {"message": "Hello from FastAPI backend!"}
+    return {"message": "excel onboarding backend"}
 
 
 load_dotenv()

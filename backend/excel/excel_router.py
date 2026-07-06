@@ -13,7 +13,7 @@ job_service = JobService()
 worker_service = WorkerService()
 
 @router.post("/create")
-def create_job(
+async def create_job(
     # background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
