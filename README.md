@@ -12,9 +12,11 @@
     - 기능이 완성될 시 디스코드 메시지로 알림을 제공합니다.
 
 3. 아키텍처 다이어그램
+
 ![diagram](./docs/diagram.png)
 
 4. 흐름도
+
 ![flow](./docs/flow.png)
 
 5. 포함 항목
