@@ -17,18 +17,42 @@ class GCSClient:
         self.bucket_name = self.settings.GCP_STORAGE_BUCKET_NAME
         self.bucket = self.client.bucket(self.bucket_name)
 
-    def upload(self, local_file_path: str, job_id: int) -> dict:
-        object_name = f"excels/job_{job_id}.xlsx"
+    # def upload(self, local_file_path: str, job_id: int) -> dict:
+    #     object_name = f"excels/job_{job_id}.xlsx"
+    #     blob = self.bucket.blob(object_name)
+    #     blob.upload_from_filename(
+    #         local_file_path,
+    #         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    #     )
+
+    #     return {
+    #         "object_name": object_name,
+    #         "gcs_url": f"gs://{self.bucket_name}/{object_name}",
+    #         "download_url": self.create_download_url(object_name),
+    #     }
+
+    def upload(
+        self,
+        local_file_path: str,
+        job_id: int,
+    ) -> dict:
+        object_name = f"exports/job_{job_id}.csv"
         blob = self.bucket.blob(object_name)
+
         blob.upload_from_filename(
             local_file_path,
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            content_type="text/csv; charset=utf-8",
         )
 
         return {
             "object_name": object_name,
-            "gcs_url": f"gs://{self.bucket_name}/{object_name}",
-            "download_url": self.create_download_url(object_name),
+            "gcs_url": (
+                f"gs://{self.bucket_name}/"
+                f"{object_name}"
+            ),
+            "download_url": self.create_download_url(
+                object_name
+            ),
         }
 
     def create_download_url(self, object_name: str) -> str:
