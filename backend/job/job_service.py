@@ -7,8 +7,8 @@ from common.enums.job_status import JobStatus
 from common.utils.now import now
 from core.logging import complete_logger, fail_logger, start_logger
 from job.job import Job
-from job.job_events import publish_job_event
-from job.job_queue_service import JobQueueService
+# from job.job_events import publish_job_event
+# from job.job_queue_service import JobQueueService
 from webhook.webhook_service import WebhookService
 
 
@@ -16,7 +16,7 @@ class JobService:
     """Job persistence and state transitions in one place."""
 
     def __init__(self):
-        self.queue = JobQueueService()
+        # self.queue = JobQueueService()
         self.webhook = WebhookService()
 
     def create_export(self, db: Session) -> Job:
@@ -24,11 +24,11 @@ class JobService:
         try:
             db.add(job)
             db.flush()
-            self.queue.add(db, job.id)
+            # self.queue.add(db, job.id)
             db.commit()
             db.refresh(job)
-            publish_job_event(job)
-            self.queue.dispatch_head(db)
+            # publish_job_event(job)
+            # self.queue.dispatch_head(db)
             db.refresh(job)
             return job
         except Exception:
@@ -105,5 +105,5 @@ class JobService:
         db.flush()
         db.commit()
         db.refresh(job)
-        publish_job_event(job)
+        # publish_job_event(job)
         return job
