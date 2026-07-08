@@ -7,11 +7,7 @@ logger = logging.getLogger(__name__)
 def event_logger(message: str, *, level: int = logging.INFO, **fields) -> None:
     logger.log(
         level,
-        json.dumps(
-            {"message": message, **fields},
-            ensure_ascii=False,
-            default=str,
-        ),
+        message
     )
 
 
@@ -31,46 +27,24 @@ def request_logger(
         requested_at: datetime
     ) :
         logger.info(
-            json.dumps({
-                "message": "Request received",
-                "job_id": job_id,
-                "requested_at": requested_at,
-            },
-            ensure_ascii=False,
-            default=str
-        ))
+            f"job_id={job_id} request_log, 엑셀 생성이 요청되었습니다. at : {requested_at}"
+        )
 
 def start_logger(
         job_id: int,
         started_at: datetime
     ) :
     logger.info(
-        json.dumps({
-            "message": "Job started",
-            "job_id": job_id,
-        "started_at": started_at,
-        },
-        ensure_ascii=False,
-        default=str
-    ))
+            f"job_id={job_id} start_log, 엑셀 작업이 시작되었습니다. at : {started_at}"
+        )
 
 def complete_logger(
         job_id: int,
         completed_at: datetime,
         duration_seconds: float,
-        gcs_url: str
     ) :
     logger.info(
-        json.dumps({
-            "message": "Job completed",
-            "job_id": job_id,
-            "completed_at": completed_at,
-            "duration_seconds": duration_seconds,
-            "gcs_url": gcs_url
-        },
-            ensure_ascii=False,
-            default=str
-        )
+        f"job_id={job_id} complete_log, 엑셀 생성이 완료되었습니다. at : {completed_at}, 소모시간 : {duration_seconds}" 
     )
 
 def fail_logger(
@@ -79,13 +53,5 @@ def fail_logger(
         error_message: str
     ) :
     logger.error(
-        json.dumps({
-            "message": "Job failed",
-            "job_id": job_id,
-            "failed_at": failed_at,
-            "error_message": error_message
-        },
-            ensure_ascii=False,
-            default=str
-        )
+        f"job_id={job_id} fail_log, 엑셀 생성이 실패하였습니다. at : {failed_at}, msg:{error_message}"
     )
