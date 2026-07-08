@@ -1,0 +1,31 @@
+verseion: 1
+service:
+  db: 
+    image : postgres:16
+    environment:
+      POSTGRES_HOST: ${DB_HOST}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_PORT: ${DB_PORT}
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend 
+    environment:
+      DATABASE_URL: postgresql://${DB_HOST}:${DB_PASSWORD}@db:${DB_PORT}/postgres
+      EXCEL_STORAGE_DIR: /data/excel
+    volumes : 
+      - excel-files:/data/excel
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+
+volumes : 
+  db_data : 
+  excel_files : 
