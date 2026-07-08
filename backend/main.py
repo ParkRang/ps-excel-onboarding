@@ -7,30 +7,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.logging import setup_logger
 from db.database import Base, engine
 from excel.excel_router import router as excel_router
-from job.job import Job  # noqa: F401 - registers table metadata
-# from job.job_events import job_event_hub
-# from job.job_queue import JobQueue  # noqa: F401 - registers table metadata
-# from job.job_queue_service import JobQueueService
+from job.job import Job # noqa: F401 - registers table metadata
 from job.job_router import router as job_router
 from order.order import Order  # noqa: F401 - registers table metadata
 # from task.task_router import router as task_router
+from excel.excel_service import excel_service
+from db.database import SessionLocal
+from job.job_service import JobService
 
-
+job_service = JobService()
 setup_logger()
 Base.metadata.create_all(bind=engine)
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    worker_task = asyncio.create_task(
+        excel_service.worker_loop(job_service)
+    )
+    try:
+        yield
+    finally:
+        worker_task.cancel()
 
-# @asynccontextmanager
-# async def lifespan(_app: FastAPI):
-#     await job_event_hub.start()
-#     await asyncio.to_thread(JobQueueService().recover_and_dispatch)
-#     try:
-#         yield
-#     finally:
-#         await job_event_hub.stop()
 
-
-app = FastAPI(title="Excel onboarding backend") #, lifespan=lifespan)
+app = FastAPI(title="Excel onboarding backend", lifespan=lifespan)
 app.include_router(job_router)
 app.include_router(excel_router)
 # app.include_router(task_router)

@@ -10,7 +10,7 @@ from job.job import Job
 # from job.job_events import publish_job_event
 # from job.job_queue_service import JobQueueService
 from webhook.webhook_service import WebhookService
-
+from excel.excel_service import ExcelService
 
 class JobService:
     """Job persistence and state transitions in one place."""
@@ -24,11 +24,11 @@ class JobService:
         try:
             db.add(job)
             db.flush()
-            # self.queue.add(db, job.id)
             db.commit()
             db.refresh(job)
-            # publish_job_event(job)
-            # self.queue.dispatch_head(db)
+            
+            print("create_export 시작")
+
             db.refresh(job)
             return job
         except Exception:
@@ -75,18 +75,18 @@ class JobService:
         start_logger(job_id=job.id, started_at=job.started_at)
         return self._save(db, job)
 
-    def complete_job(self, db: Session, job: Job, upload: dict) -> Job:
+    def complete_job(self, db: Session, job: Job) -> Job:
         job.status = JobStatus.DONE
         job.progress = 100
         job.completed_at = now()
         if job.started_at:
             job.duration_seconds = (job.completed_at - job.started_at).total_seconds()
-        job.gcs_object_name = upload["object_name"]
-        job.gcs_url = upload["gcs_url"]
-        job.download_url = upload["download_url"]
+        # job.gcs_object_name = upload["object_name"]
+        # job.gcs_url = upload["gcs_url"]
+
         saved_job = self._save(db, job)
         complete_logger(job_id=job.id, completed_at=job.completed_at,
-                        duration_seconds=job.duration_seconds, gcs_url=job.gcs_url)
+                        duration_seconds=job.duration_seconds)
         self.webhook.send_success_message(job.id, job.completed_at, job.download_url)
         return saved_job
 
@@ -105,5 +105,6 @@ class JobService:
         db.flush()
         db.commit()
         db.refresh(job)
-        # publish_job_event(job)
         return job
+
+# job_service = JobService()

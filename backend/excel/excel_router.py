@@ -5,16 +5,18 @@ from fastapi.responses import FileResponse
 from core.logging import request_logger
 from db.session import get_db
 from job.job_service import JobService
-
+from excel.excel_service import excel_service
 
 router = APIRouter(tags=["exports"])
 job_service = JobService()
 
 
 @router.post("/create")
-def create_job(db: Session = Depends(get_db)):
+async def create_job(db: Session = Depends(get_db)):
     try:
+        print("create_job 시작")
         job = job_service.create_export(db)
+        await excel_service.enqueue_job(job)
     except Exception as error:
         raise HTTPException(status_code=502, detail="Could not enqueue export job") from error
     request_logger(job_id=job.id, requested_at=job.requested_at)

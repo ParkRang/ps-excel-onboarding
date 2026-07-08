@@ -228,7 +228,7 @@ function App() {
           <>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>작업</th><th>상태</th><th>진행 상황</th><th>요청 시각</th><th>소요 시간</th><th>파일</th></tr></thead>
+                <thead><tr><th>작업</th><th>상태</th><th>진행 상황</th><th>요청 시각</th><th>완료 시각</th><th>소요 시간</th><th>파일</th></tr></thead>
                 <tbody>
                   {jobs.map((job) => (
                     <tr key={job.job_id}>
@@ -236,6 +236,7 @@ function App() {
                       <td><span className={`status status-${job.status.toLowerCase()}`}>{STATUS_LABEL[job.status] || job.status}</span></td>
                       <td><Progress job={job} /></td>
                       <td>{formatDate(job.requested_at)}</td>
+                      <td>{formatDate(job.complted_at)}</td>
                       <td>{formatDuration(job.duration_seconds)}</td>
                       <td><DownloadLink job={job} /></td>
                     </tr>

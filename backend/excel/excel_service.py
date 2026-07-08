@@ -1,23 +1,31 @@
-import tempfile, asyncio
+import tempfile, asyncio, logging
 from math import ceil
 from fastapi import BackgroundTasks
+from itertools import count
+from typing import Any
+from pathlib import Path
 
 from openpyxl import Workbook
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from job.job import Job
+from common.enums.job_status import JobStatus
 # from job.job_events import publish_job_event
 from core.logging import event_logger
 from order.order import Order
+from db.database import SessionLocal
+
+logger = logging.getLogger(__name__)
 
 job_queue:asyncio.PriorityQueue = asyncio.PriorityQueue()
-
-
-
+queued_job_ids: set[int] = set()
+queue_lock = asyncio.Lock()
+sequence = count()
 
 class ExcelService:
     MAX_CHUNK_SIZE = 5000
+
 
     def create_excel(self, db: Session, job: Job) -> str:
         workbook = Workbook(write_only=True)
@@ -70,15 +78,110 @@ class ExcelService:
                 last_progress = progress
                 if progress >= last_logged_progress + 10 or progress == 100:
                     event_logger(
-                        f"{job.id}번 파일 생성이 진행 되었습니다."
+                        f"{job.id}번 파일 생성이 진행중입니다. {progress}"
                     )
                     last_logged_progress = progress
 
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_file:
-            file_path = temp_file.name
+        # with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_file:
+        #     file_path = temp_file.name
+        # workbook.save(file_path)
+
+        output_dir = Path("files")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        file_path = output_dir / f"{job.id}.xlsx"
         workbook.save(file_path)
-        event_logger("Excel workbook saved", job_id=job.id, file_path=file_path)
-        return file_path
+
+
+        event_logger(f"{job.id}엑셀 파일이 생성되었습니다, {file_path}")
+        return str(file_path)
+
+    async def enqueue_job(self, job: Job) -> None:
+        print("enqueue 실행")
+        job_id = job.id
+
+        async with queue_lock:
+            if job_id in queued_job_ids:
+                logger.info("엑셀 작업이 이미 큐에 있습니다. job_id=%s", job_id)
+                return
+
+            queued_job_ids.add(job_id)
+            await job_queue.put((job_id, next(sequence), job_id))
+
+        logger.info("엑셀 생성 작업이 큐에 입력되었습니다. job_id=%s", job_id) 
+
+    async def worker_loop(self, job_service) -> None:
+        logger.info("엑셀 worker_loop 시작")
+
+        while True:
+            job_id, _, _ = await job_queue.get()
+            logger.info("큐에서 엑셀 작업을 꺼냈습니다. job_id=%s", job_id)
+
+            async with queue_lock:
+                queued_job_ids.discard(job_id)
+
+            with SessionLocal() as db:
+                job = db.get(Job, job_id)
+
+                try:
+                    if job is None:
+                        logger.warning("엑셀 작업을 찾을 수 없습니다. job_id=%s", job_id)
+                        continue
+
+                    logger.info("엑셀 작업이 시작되었습니다. job_id=%s", job_id)
+
+                    job_service.start_job(db, job)
+                    db.commit()
+                    db.refresh(job)
+
+                    file_path = self.create_excel(db, job)
+
+                    job.download_url = f"/files/{job.id}"
+                    job_service.complete_job(db, job)
+
+                    db.commit()
+
+                    logger.info(
+                        "엑셀 생성이 완료되었습니다. job_id=%s file_path=%s",
+                        job_id,
+                        file_path,
+                    )
+
+                except Exception as error:
+                    logger.exception("엑셀 작업이 실패하였습니다. job_id=%s", job_id)
+
+                    if job is not None:
+                        job.status = JobStatus.FAILED
+                        job.error_message = str(error)
+                        db.commit()
+
+                finally:
+                    job_queue.task_done()
+    # async def worker_loop(excel_servce, session_factory):
+    #     while True:
+    #         job_id, _, _ = await job_queue.get()
+
+    #         try:
+    #             with session_factory() as db:
+    #                 job = db.get(Job, job_id)
+    #                 if job is None:
+    #                     continue
+
+    #                 job.status =JobStatus.PROCESSING
+    #                 db.commit()
+
+    #                 url = excel_servce.create_excel(db, job)
+
+    #                 job.status = JobStatus.DONE
+    #                 job.download_url = url
+    #                 db.commit()
+
+    #         except Exception:
+    #             logger.exception("엑셀 작업이 실패하였습니다. job_id=%s", job_id)
+
+    #         finally:
+    #             job_queue.task_done()
+
 
 
 
@@ -89,8 +192,9 @@ class ExcelService:
         job.progress = 100 if total_rows == 0 else int(processed_rows * 100 / total_rows)
         db.commit()
         db.refresh(job)
-        # publish_job_event(job)
 
     @staticmethod
     def _format_datetime(value) -> str:
         return "" if value is None else value.strftime("%Y-%m-%d %H:%M:%S")
+
+excel_service = ExcelService()

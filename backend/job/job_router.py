@@ -60,7 +60,7 @@ def get_job_download(job_id: int, db: Session = Depends(get_db)):
     job = job_service.get_job(db, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    if not job.gcs_object_name:
+    if not job.download_url:
         raise HTTPException(status_code=409, detail="Excel file is not ready")
 
     # download_url = GCSClient().create_download_url(job.gcs_object_name)
