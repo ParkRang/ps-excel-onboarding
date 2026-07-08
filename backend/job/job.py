@@ -73,15 +73,15 @@ class Job(Base):
         nullable=True,
     )
 
-    gcs_object_name: Mapped[str | None] = mapped_column(
-        String(500),
-        nullable=True,
-    )
+    # gcs_object_name: Mapped[str | None] = mapped_column(
+    #     String(500),
+    #     nullable=True,
+    # )
 
-    gcs_url: Mapped[str | None] = mapped_column(
-        String(1000),
-        nullable=True,
-    )
+    # gcs_url: Mapped[str | None] = mapped_column(
+    #     String(1000),
+    #     nullable=True,
+    # )
 
     error_message: Mapped[str | None] = mapped_column(
         Text,
