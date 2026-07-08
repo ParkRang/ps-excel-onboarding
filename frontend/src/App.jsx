@@ -50,7 +50,8 @@ function DownloadLink({ job }) {
     setDownloadError('')
     try {
       const { download_url: downloadUrl } = await getJobDownloadUrl(job.job_id)
-      window.location.assign(downloadUrl)
+      // window.location.assign(downloadUrl)
+      window.location.assign(`${API_BASE_URL}${downloadUrl}`)
     } catch (error) {
       setDownloadError(error.message)
     } finally {
@@ -143,34 +144,93 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
-    const eventSource = new EventSource(`${API_BASE_URL}/jobs/events`)
+// add sse
 
-    eventSource.addEventListener('job', (event) => {
-      const updatedJob = JSON.parse(event.data)
-      const previousJob = jobsRef.current.find((job) => job.job_id === updatedJob.job_id)
+ useEffect(() => {
+    // ===== [ADD] 진짜 SSE 연결 =====
+    // 브라우저가 GET /jobs/events 요청을 열어둠.
+    // 서버가 이벤트를 보내면 addEventListener("job")이 즉시 실행됨.
+    const eventSource = new EventSource(`${API_BASE_URL}/jobs/events`);
 
-      setJobs((previousJobs) => {
-        const exists = previousJobs.some((job) => job.job_id === updatedJob.job_id)
-        if (!exists) {
-          return pageRef.current === 1 && updatedJob.status === 'PENDING'
-            ? [updatedJob, ...previousJobs].slice(0, PAGE_SIZE)
-            : previousJobs
-        }
+    eventSource.onopen = () => {
+      // ===== [ADD] 연결 직후 현재 목록 한번 동기화 =====
+      loadJobs({ targetPage: pageRef.current });
+    };
 
-        return previousJobs.map((job) =>
-          job.job_id === updatedJob.job_id ? { ...job, ...updatedJob } : job
+    eventSource.addEventListener("job", (event) => {
+      // ===== [ADD] 서버에서 push한 job 상태 수신 =====
+      const updatedJob = JSON.parse(event.data);
+
+  setJobs((currentJobs) => {
+      const exists = currentJobs.some(
+        (job) => job.job_id === updatedJob.job_id
+      )
+
+      if (exists) {
+        return currentJobs.map((job) =>
+          job.job_id === updatedJob.job_id
+            ? { ...job, ...updatedJob }
+            : job
         )
-      })
-
-      if (!previousJob || previousJob.status !== updatedJob.status) {
-        loadJobs({ targetPage: pageRef.current })
       }
+
+      if (pageRef.current === 1) {
+        return [updatedJob, ...currentJobs].slice(0, PAGE_SIZE)
+      }
+
+      return currentJobs
     })
 
-    eventSource.onopen = () => loadJobs({ targetPage: pageRef.current })
-    return () => eventSource.close()
-  }, [loadJobs])
+    const previousJob = jobsRef.current.find(
+      (job) => job.job_id === updatedJob.job_id
+    )
+
+    if (previousJob && previousJob.status !== updatedJob.status) {
+      loadJobs({ targetPage: pageRef.current })
+    }
+  })
+
+    eventSource.onerror = (error) => {
+      // ===== [IMPORTANT]
+      // 여기서 close() 하지 않으면 브라우저 EventSource가 자동 재연결 시도함.
+      console.error("SSE connection error", error);
+    };
+
+    return () => {
+      // ===== [ADD] 컴포넌트 unmount 시 SSE 연결 종료 =====
+      eventSource.close();
+    };
+  }, [loadJobs]);
+
+
+  // useEffect(() => {
+  //   const eventSource = new EventSource(`${API_BASE_URL}/jobs/events`)
+
+  //   eventSource.addEventListener('job', (event) => {
+  //     const updatedJob = JSON.parse(event.data)
+  //     const previousJob = jobsRef.current.find((job) => job.job_id === updatedJob.job_id)
+
+  //     setJobs((previousJobs) => {
+  //       const exists = previousJobs.some((job) => job.job_id === updatedJob.job_id)
+  //       if (!exists) {
+  //         return pageRef.current === 1 && updatedJob.status === 'PENDING'
+  //           ? [updatedJob, ...previousJobs].slice(0, PAGE_SIZE)
+  //           : previousJobs
+  //       }
+
+  //       return previousJobs.map((job) =>
+  //         job.job_id === updatedJob.job_id ? { ...job, ...updatedJob } : job
+  //       )
+  //     })
+
+  //     if (!previousJob || previousJob.status !== updatedJob.status) {
+  //       loadJobs({ targetPage: pageRef.current })
+  //     }
+  //   })
+
+  //   eventSource.onopen = () => loadJobs({ targetPage: pageRef.current })
+  //   return () => eventSource.close()
+  // }, [loadJobs])
 
   async function handleCreate() {
     setError('')
@@ -236,7 +296,7 @@ function App() {
                       <td><span className={`status status-${job.status.toLowerCase()}`}>{STATUS_LABEL[job.status] || job.status}</span></td>
                       <td><Progress job={job} /></td>
                       <td>{formatDate(job.requested_at)}</td>
-                      <td>{formatDate(job.complted_at)}</td>
+                      <td>{formatDate(job.completed_at)}</td>
                       <td>{formatDuration(job.duration_seconds)}</td>
                       <td><DownloadLink job={job} /></td>
                     </tr>

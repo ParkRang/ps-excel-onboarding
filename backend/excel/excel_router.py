@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
+from pathlib import Path
 
 from core.logging import request_logger
 from db.session import get_db
@@ -24,5 +25,6 @@ async def create_job(db: Session = Depends(get_db)):
 
 @router.get('/files/{job_id}')
 async def download_file(job_id: str) :
-    path = f'/app/files/{job_id}.xlsx'
-    return FileResponse(path, filename = f'{job_id}.xlsx')
+    # path = f'/app/files/{job_id}.xlsx'
+    path = Path("files") / f"{job_id}.xlsx"
+    return FileResponse(path, filename = f'{job_id}.xlsx', media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",)

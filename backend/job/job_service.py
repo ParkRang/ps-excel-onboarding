@@ -2,6 +2,7 @@ from math import ceil
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from job.job_events import publish_job_event
 
 from common.enums.job_status import JobStatus
 from common.utils.now import now
@@ -30,6 +31,8 @@ class JobService:
             print("create_export 시작")
 
             db.refresh(job)
+
+            publish_job_event(job)
             return job
         except Exception:
             db.rollback()
@@ -72,6 +75,10 @@ class JobService:
         job.attempt_count += 1
         job.progress = 0
         job.error_message = None
+
+        saved_job = self._save(db, job)
+        publish_job_event(saved_job)
+
         start_logger(job_id=job.id, started_at=job.started_at)
         return self._save(db, job)
 
@@ -85,6 +92,8 @@ class JobService:
         # job.gcs_url = upload["gcs_url"]
 
         saved_job = self._save(db, job)
+        publish_job_event(saved_job)
+
         complete_logger(job_id=job.id, completed_at=job.completed_at,
                         duration_seconds=job.duration_seconds)
         self.webhook.send_success_message(job.id, job.completed_at, job.download_url)
@@ -95,6 +104,8 @@ class JobService:
         job.failed_at = now()
         job.error_message = str(error)[:4000]
         saved_job = self._save(db, job)
+        publish_job_event(saved_job)
+        
         fail_logger(job_id=job.id, failed_at=job.failed_at, error_message=job.error_message)
         self.webhook.send_failure_message(job.id, job.error_message)
         return saved_job
