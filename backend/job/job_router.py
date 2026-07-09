@@ -4,10 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
-from job.job_events import job_event_hub
-
 from db.session import get_db
-from job.job_events import job_event_hub, encode_sse
+from job.job_events import job_event_hub
 from job.job_response import JobPageResponse, JobResponse
 from job.job_service import JobService
 
@@ -42,6 +40,10 @@ async def stream_job_events(request: Request):
                     # ===== [ADD]
                     # 연결 유지용 heartbeat.
                     yield ": heartbeat\n\n"
+
+        except asyncio.CancelledError:
+            # Server shutdown or client disconnect while the SSE stream is open.
+            return
 
         finally:
             # ===== [ADD] 브라우저 연결 종료 시 subscriber 제거 =====

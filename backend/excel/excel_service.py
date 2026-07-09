@@ -2,6 +2,7 @@ import tempfile, asyncio, logging
 from math import ceil
 from itertools import count
 from pathlib import Path
+from time import perf_counter
 
 from openpyxl import Workbook
 from sqlalchemy import func, select
@@ -13,6 +14,7 @@ from order.order import Order
 from db.database import SessionLocal
 from services.storage_service import get_storage_client
 from task.task_service import CloudTaskService
+from core.logging import complete_logger, fail_logger, start_logger
 
 from job.job_events import publish_job_event
 from common.utils.now import now
@@ -39,6 +41,11 @@ class ExcelService:
 
         try:
             logger.info("엑셀 생성 작업을 시작합니다. job_id=%s infra_mode=%s", job_id, settings.INFRA_MODE)
+            total_started_at = perf_counter()
+            read_elapsed = 0.0
+            write_elapsed = 0.0
+            save_elapsed = 0.0
+
             job = db.get(Job, job_id)
 
             if job is None:
@@ -60,6 +67,7 @@ class ExcelService:
 
             # ===== [ADD] 상태 변경 즉시 SSE 발행 =====
             publish_job_event(job)
+            start_logger(job_id=job.id, started_at=job.started_at)
 
             # ===== [기존 코드 유지] 엑셀 workbook 생성 =====
             workbook = Workbook()
@@ -96,13 +104,16 @@ class ExcelService:
                 for page in range(total_pages):
                     offset = page * self.MAX_CHUNK_SIZE
 
+                    read_started_at = perf_counter()
                     orders = db.scalars(
                         select(Order)
                         .order_by(Order.id)
                         .offset(offset)
                         .limit(self.MAX_CHUNK_SIZE)
                     ).all()
+                    read_elapsed += perf_counter() - read_started_at
 
+                    write_started_at = perf_counter()
                     for order in orders:
                         sheet.append([
                             order.id,
@@ -113,6 +124,7 @@ class ExcelService:
                             order.status,
                             self._format_datetime(order.order_date),
                         ])
+                    write_elapsed += perf_counter() - write_started_at
 
                     processed_rows += len(orders)
                     progress = int((processed_rows / total_rows) * 100)
@@ -136,12 +148,18 @@ class ExcelService:
                 output_dir.mkdir(parents=True, exist_ok=True)
 
             file_path = output_dir / f"{job.id}.xlsx"
+            save_started_at = perf_counter()
             workbook.save(file_path)
+            save_elapsed += perf_counter() - save_started_at
             storage = get_storage_client()
             if settings.is_cloud:
+                save_started_at = perf_counter()
                 storage_result = storage.upload(str(file_path), job.id)
+                save_elapsed += perf_counter() - save_started_at
             else:
+                save_started_at = perf_counter()
                 storage_result = storage.save(str(file_path), job.id)
+                save_elapsed += perf_counter() - save_started_at
 
             # ===== [ADD] 작업 완료 상태 저장 =====
             job.status = JobStatus.DONE
@@ -160,11 +178,29 @@ class ExcelService:
 
             # ===== [ADD] 완료 상태 SSE 발행 =====
             publish_job_event(job)
+            complete_logger(
+                job_id=job.id,
+                completed_at=job.completed_at,
+                duration_seconds=job.duration_seconds,
+            )
             logger.info(
                 "엑셀 생성 작업이 완료되었습니다. job_id=%s total_rows=%s download_url=%s",
                 job.id,
                 total_rows,
                 job.download_url,
+            )
+            logger.info(
+                (
+                    "엑셀 생성 단계별 소요시간. "
+                    "job_id=%s total_rows=%s read_seconds=%.3f "
+                    "write_seconds=%.3f save_seconds=%.3f total_seconds=%.3f"
+                ),
+                job.id,
+                total_rows,
+                read_elapsed,
+                write_elapsed,
+                save_elapsed,
+                perf_counter() - total_started_at,
             )
 
         except Exception as exc:
@@ -187,6 +223,11 @@ class ExcelService:
 
                 # ===== [ADD] 실패 상태 SSE 발행 =====
                 publish_job_event(job)
+                fail_logger(
+                    job_id=job.id,
+                    failed_at=job.failed_at,
+                    error_message=job.error_message,
+                )
 
             raise
 
