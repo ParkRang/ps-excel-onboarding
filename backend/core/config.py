@@ -1,10 +1,16 @@
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-load_dotenv() # .env 파일 로드
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = BACKEND_DIR.parent
+
+load_dotenv(BACKEND_DIR / ".env")
+load_dotenv(PROJECT_ROOT / ".env")
 
 class Settings:
-    INFRA_MODE = os.getenv("INFRA_MODE", "local")
+    INFRA_MODE = os.getenv("INFRA_MODE", "local").strip().lower()
 
     DB_USER = os.getenv('DB_USER')
     DB_PASSWORD = os.getenv('DB_PASSWORD')
@@ -24,3 +30,18 @@ class Settings:
     )
     EXCEL_STORAGE_DIR = os.getenv("EXCEL_STORAGE_DIR", "files")
     EXCEL_DOWNLOAD_PREFIX = os.getenv("EXCEL_DOWNLOAD_PREFIX", "/files")
+
+    @property
+    def is_cloud(self) -> bool:
+        return self.INFRA_MODE == "cloud"
+
+    @property
+    def is_local(self) -> bool:
+        return self.INFRA_MODE == "local"
+
+    def validate_infra_mode(self) -> None:
+        if self.INFRA_MODE not in {"cloud", "local"}:
+            raise RuntimeError(
+                "INFRA_MODE must be either 'cloud' or 'local'. "
+                f"current={self.INFRA_MODE!r}"
+            )

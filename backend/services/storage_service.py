@@ -1,4 +1,5 @@
 from datetime import timedelta
+import logging
 from pathlib import Path
 
 import google.auth
@@ -8,6 +9,7 @@ from google.cloud import storage
 from core.config import Settings
 
 EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+logger = logging.getLogger(__name__)
 
 
 class LocalStorageClient:
@@ -22,6 +24,7 @@ class LocalStorageClient:
         if Path(local_file_path) != target_path:
             target_path.write_bytes(Path(local_file_path).read_bytes())
 
+        logger.info("엑셀 파일을 로컬 볼륨에 저장했습니다. job_id=%s path=%s", job_id, target_path)
         return {
             "object_name": str(target_path),
             "download_url": f"{self.settings.EXCEL_DOWNLOAD_PREFIX}/{job_id}",
@@ -47,6 +50,12 @@ class GCSClient:
             content_type=EXCEL_MIME_TYPE,
         )
 
+        logger.info(
+            "엑셀 파일을 GCS에 업로드했습니다. job_id=%s bucket=%s object=%s",
+            job_id,
+            self.bucket_name,
+            object_name,
+        )
         return {
             "object_name": object_name,
             "gcs_url": f"gs://{self.bucket_name}/{object_name}",
@@ -88,6 +97,6 @@ class GCSClient:
 
 def get_storage_client():
     settings = Settings()
-    if settings.INFRA_MODE == "cloud":
+    if settings.is_cloud:
         return GCSClient()
     return LocalStorageClient()

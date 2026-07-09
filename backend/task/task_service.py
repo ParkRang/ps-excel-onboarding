@@ -1,9 +1,12 @@
 import json
+import logging
 
 from google.cloud import tasks_v2
 from google.protobuf import duration_pb2
 
 from core.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class CloudTaskService:
@@ -67,6 +70,13 @@ class CloudTaskService:
             task=task,
         )
 
+        logger.info(
+            "Cloud Tasks 작업을 생성했습니다. job_id=%s queue=%s task=%s url=%s",
+            job_id,
+            queue_path,
+            created_task.name,
+            worker_url,
+        )
         return created_task.name
 
     def _validate_settings(self) -> None:

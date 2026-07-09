@@ -38,6 +38,7 @@ class ExcelService:
         file_path: Path | None = None
 
         try:
+            logger.info("엑셀 생성 작업을 시작합니다. job_id=%s infra_mode=%s", job_id, settings.INFRA_MODE)
             job = db.get(Job, job_id)
 
             if job is None:
@@ -110,7 +111,7 @@ class ExcelService:
                             order.category,
                             order.amount,
                             order.status,
-                            order.order_date,
+                            self._format_datetime(order.order_date),
                         ])
 
                     processed_rows += len(orders)
@@ -129,7 +130,7 @@ class ExcelService:
                     publish_job_event(job)
 
             output_dir = Path(settings.EXCEL_STORAGE_DIR)
-            if settings.INFRA_MODE == "cloud":
+            if settings.is_cloud:
                 output_dir = Path(tempfile.gettempdir())
             else:
                 output_dir.mkdir(parents=True, exist_ok=True)
@@ -137,7 +138,7 @@ class ExcelService:
             file_path = output_dir / f"{job.id}.xlsx"
             workbook.save(file_path)
             storage = get_storage_client()
-            if settings.INFRA_MODE == "cloud":
+            if settings.is_cloud:
                 storage_result = storage.upload(str(file_path), job.id)
             else:
                 storage_result = storage.save(str(file_path), job.id)
@@ -148,6 +149,8 @@ class ExcelService:
             job.processed_rows = total_rows
             job.completed_at = now()
             job.download_url = storage_result["download_url"]
+            job.gcs_object_name = storage_result.get("object_name")
+            job.gcs_url = storage_result.get("gcs_url")
 
             if job.started_at is not None:
                 job.duration_seconds = int((job.completed_at - job.started_at).total_seconds())
@@ -157,9 +160,16 @@ class ExcelService:
 
             # ===== [ADD] 완료 상태 SSE 발행 =====
             publish_job_event(job)
+            logger.info(
+                "엑셀 생성 작업이 완료되었습니다. job_id=%s total_rows=%s download_url=%s",
+                job.id,
+                total_rows,
+                job.download_url,
+            )
 
         except Exception as exc:
             db.rollback()
+            logger.exception("엑셀 생성 작업이 실패했습니다. job_id=%s", job_id)
 
             job = db.get(Job, job_id)
 
@@ -181,7 +191,7 @@ class ExcelService:
             raise
 
         finally:
-            if settings.INFRA_MODE == "cloud" and file_path is not None:
+            if settings.is_cloud and file_path is not None:
                 file_path.unlink(missing_ok=True)
             db.close()
 
@@ -189,7 +199,7 @@ class ExcelService:
         logger.info("enqueue 실행")
         job_id = job.id
 
-        if settings.INFRA_MODE == "cloud":
+        if settings.is_cloud:
             task_name = cloud_task_service.enqueue(job_id)
             job.task_name = task_name
             logger.info("Cloud Tasks에 엑셀 작업을 등록했습니다. job_id=%s task_name=%s", job_id, task_name)

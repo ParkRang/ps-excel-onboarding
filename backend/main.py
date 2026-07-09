@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
@@ -21,6 +22,8 @@ from job.job_events import job_event_hub
 job_service = JobService()
 settings = Settings()
 setup_logger()
+logger = logging.getLogger(__name__)
+settings.validate_infra_mode()
 Base.metadata.create_all(bind=engine)
 
 @asynccontextmanager
@@ -39,13 +42,18 @@ async def lifespan(app: FastAPI):
     #     name="excel-worker",
     # )
     worker_task = None
-    if settings.INFRA_MODE != "cloud":
+    logger.info("애플리케이션을 시작합니다. infra_mode=%s", settings.INFRA_MODE)
+    if settings.is_local:
+        logger.info("local 모드이므로 내부 백그라운드 엑셀 worker를 시작합니다.")
         worker_task = asyncio.create_task(excel_service.worker_loop())
+    else:
+        logger.info("cloud 모드이므로 내부 worker를 시작하지 않고 Cloud Tasks 콜백을 사용합니다.")
 
     try:
         yield
     finally:
         if worker_task is not None:
+            logger.info("내부 백그라운드 엑셀 worker를 종료합니다.")
             worker_task.cancel()
 
             with suppress(asyncio.CancelledError):

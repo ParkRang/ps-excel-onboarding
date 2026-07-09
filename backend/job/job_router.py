@@ -10,7 +10,6 @@ from db.session import get_db
 from job.job_events import job_event_hub, encode_sse
 from job.job_response import JobPageResponse, JobResponse
 from job.job_service import JobService
-from services.storage_service import GCSClient
 
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -150,4 +149,3 @@ def get_job(job_id: int, db: Session = Depends(get_db)):
 #             "X-Accel-Buffering": "no",
 #         },
 #     )
-

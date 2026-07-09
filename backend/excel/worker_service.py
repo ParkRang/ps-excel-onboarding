@@ -8,7 +8,7 @@ class WorkerBusyError(Exception):
 
 
 class WorkerService:
-    """Process the queue head, then dispatch exactly one next Cloud Task."""
+    """Run one Cloud Tasks callback by processing the requested Excel job."""
 
     def __init__(self):
         self.jobs = JobService()
