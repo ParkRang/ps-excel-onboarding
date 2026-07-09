@@ -21,5 +21,8 @@ venv/
 # Logs
 *.log
 
+# Generated Excel files
+files/
+
 # macOS
 .DS_Store
