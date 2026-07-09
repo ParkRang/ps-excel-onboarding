@@ -50,8 +50,10 @@ function DownloadLink({ job }) {
     setDownloadError('')
     try {
       const { download_url: downloadUrl } = await getJobDownloadUrl(job.job_id)
-      // window.location.assign(downloadUrl)
-      window.location.assign(`${API_BASE_URL}${downloadUrl}`)
+      const targetUrl = downloadUrl.startsWith('http')
+        ? downloadUrl
+        : `${API_BASE_URL}${downloadUrl}`
+      window.location.assign(targetUrl)
     } catch (error) {
       setDownloadError(error.message)
     } finally {
@@ -144,63 +146,61 @@ function App() {
     }
   }, [])
 
-// add sse
-
- useEffect(() => {
+  useEffect(() => {
     // ===== [ADD] 진짜 SSE 연결 =====
     // 브라우저가 GET /jobs/events 요청을 열어둠.
     // 서버가 이벤트를 보내면 addEventListener("job")이 즉시 실행됨.
-    const eventSource = new EventSource(`${API_BASE_URL}/jobs/events`);
+    const eventSource = new EventSource(`${API_BASE_URL}/jobs/events`)
 
     eventSource.onopen = () => {
       // ===== [ADD] 연결 직후 현재 목록 한번 동기화 =====
-      loadJobs({ targetPage: pageRef.current });
-    };
+      loadJobs({ targetPage: pageRef.current })
+    }
 
     eventSource.addEventListener("job", (event) => {
       // ===== [ADD] 서버에서 push한 job 상태 수신 =====
-      const updatedJob = JSON.parse(event.data);
+      const updatedJob = JSON.parse(event.data)
 
-  setJobs((currentJobs) => {
-      const exists = currentJobs.some(
+      setJobs((currentJobs) => {
+        const exists = currentJobs.some(
+          (job) => job.job_id === updatedJob.job_id
+        )
+
+        if (exists) {
+          return currentJobs.map((job) =>
+            job.job_id === updatedJob.job_id
+              ? { ...job, ...updatedJob }
+              : job
+          )
+        }
+
+        if (pageRef.current === 1 && updatedJob.status === 'PENDING') {
+          return [updatedJob, ...currentJobs].slice(0, PAGE_SIZE)
+        }
+
+        return currentJobs
+      })
+
+      const previousJob = jobsRef.current.find(
         (job) => job.job_id === updatedJob.job_id
       )
 
-      if (exists) {
-        return currentJobs.map((job) =>
-          job.job_id === updatedJob.job_id
-            ? { ...job, ...updatedJob }
-            : job
-        )
+      if (previousJob && previousJob.status !== updatedJob.status) {
+        loadJobs({ targetPage: pageRef.current })
       }
-
-      if (pageRef.current === 1) {
-        return [updatedJob, ...currentJobs].slice(0, PAGE_SIZE)
-      }
-
-      return currentJobs
     })
-
-    const previousJob = jobsRef.current.find(
-      (job) => job.job_id === updatedJob.job_id
-    )
-
-    if (previousJob && previousJob.status !== updatedJob.status) {
-      loadJobs({ targetPage: pageRef.current })
-    }
-  })
 
     eventSource.onerror = (error) => {
       // ===== [IMPORTANT]
       // 여기서 close() 하지 않으면 브라우저 EventSource가 자동 재연결 시도함.
-      console.error("SSE connection error", error);
-    };
+      console.error("SSE connection error", error)
+    }
 
     return () => {
       // ===== [ADD] 컴포넌트 unmount 시 SSE 연결 종료 =====
-      eventSource.close();
-    };
-  }, [loadJobs]);
+      eventSource.close()
+    }
+  }, [loadJobs])
 
 
   // useEffect(() => {
