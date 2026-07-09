@@ -10,7 +10,7 @@ from db.session import get_db
 from job.job_events import job_event_hub, encode_sse
 from job.job_response import JobPageResponse, JobResponse
 from job.job_service import JobService
-# from services.storage_service import GCSClient
+from services.storage_service import GCSClient
 
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -35,7 +35,6 @@ async def stream_job_events(request: Request):
 
                 try:
                     # ===== [IMPORTANT]
-                    # 이건 DB polling이 아님.
                     # Queue에 publish된 SSE 메시지가 들어올 때까지 await 대기하는 것.
                     message = await asyncio.wait_for(queue.get(), timeout=15)
                     yield message
@@ -43,7 +42,6 @@ async def stream_job_events(request: Request):
                 except asyncio.TimeoutError:
                     # ===== [ADD]
                     # 연결 유지용 heartbeat.
-                    # DB 조회 안 함. 상태 확인 안 함. polling 아님.
                     yield ": heartbeat\n\n"
 
         finally:
