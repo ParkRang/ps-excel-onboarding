@@ -1,31 +1,61 @@
-verseion: 1
-service:
-  db: 
-    image : postgres:16
+services:
+  db:
+    image: postgres:16-alpine
     environment:
-      POSTGRES_HOST: ${DB_HOST}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_PORT: ${DB_PORT}
-
+      POSTGRES_USER: ${DB_USER:-excel}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-excel_password}
+      POSTGRES_DB: ${DB_NAME:-excel_onboarding}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
-    build: ./backend 
+    build:
+      context: ./backend
+      dockerfile: dockerfile
     environment:
-      DATABASE_URL: postgresql://${DB_HOST}:${DB_PASSWORD}@db:${DB_PORT}/postgres
+      INFRA_MODE: ${INFRA_MODE:-local}
+      DB_USER: ${DB_USER:-excel}
+      DB_PASSWORD: ${DB_PASSWORD:-excel_password}
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-excel_onboarding}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
       EXCEL_STORAGE_DIR: /data/excel
-    volumes : 
-      - excel-files:/data/excel
+      EXCEL_DOWNLOAD_PREFIX: ${EXCEL_DOWNLOAD_PREFIX:-/files}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GCP_LOCATION: ${GCP_LOCATION:-}
+      GCP_TASKS_QUEUE_NAME: ${GCP_TASKS_QUEUE_NAME:-}
+      BACKEND_URL: ${BACKEND_URL:-}
+      TASKS_SERVICE_ACCOUNT_EMAIL: ${TASKS_SERVICE_ACCOUNT_EMAIL:-}
+      GCP_STORAGE_BUCKET_NAME: ${GCP_STORAGE_BUCKET_NAME:-}
+      PORT: 8000
+    expose:
+      - "8000"
+    volumes:
+      - excel_files:/data/excel
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    environment:
+      PORT: 3000
+      BACKEND_UPSTREAM: http://backend:8000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend
 
-volumes : 
-  db_data : 
-  excel_files : 
+volumes:
+  db_data:
+  excel_files:
