@@ -7,12 +7,20 @@ from core.config import Settings
 
 
 class CloudTaskService:
+    REQUIRED_SETTINGS = (
+        "GCP_PROJECT_ID",
+        "GCP_LOCATION",
+        "GCP_TASKS_QUEUE_NAME",
+        "BACKEND_URL",
+        "TASKS_SERVICE_ACCOUNT_EMAIL",
+    )
 
     def __init__(self):
         self.settings = Settings()
         self.client = None
 
     def enqueue(self, job_id: int) -> str:
+        self._validate_settings()
 
         if self.client is None:
             self.client = tasks_v2.CloudTasksClient()
@@ -60,3 +68,15 @@ class CloudTaskService:
         )
 
         return created_task.name
+
+    def _validate_settings(self) -> None:
+        missing = [
+            name
+            for name in self.REQUIRED_SETTINGS
+            if not getattr(self.settings, name)
+        ]
+        if missing:
+            raise RuntimeError(
+                "Missing cloud task settings: "
+                + ", ".join(missing)
+            )
