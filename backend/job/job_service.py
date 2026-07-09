@@ -9,7 +9,6 @@ from common.utils.now import now
 from core.logging import complete_logger, fail_logger, start_logger
 from job.job import Job
 # from job.job_events import publish_job_event
-# from job.job_queue_service import JobQueueService
 from webhook.webhook_service import WebhookService
 from excel.excel_service import ExcelService
 
