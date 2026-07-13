@@ -8,11 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.config import Settings
 from core.logging import setup_logger
 from db.database import Base, engine
+from auth.auth_router import router as auth_router
 from excel.excel_router import router as excel_router
 from job.job import Job # noqa: F401 - registers table metadata
 from job.job_router import router as job_router
 from order.order import Order  # noqa: F401 - registers table metadata
 from task.task_router import router as task_router
+from user.user import User  # noqa: F401 - registers table metadata
 from excel.excel_service import excel_service
 # from db.database import SessionLocal
 from job.job_service import JobService
@@ -69,6 +71,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Excel onboarding backend", lifespan=lifespan)
+app.include_router(auth_router)
 app.include_router(job_router)
 app.include_router(excel_router)
 app.include_router(task_router)

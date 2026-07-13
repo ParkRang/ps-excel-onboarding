@@ -16,16 +16,12 @@ class JobService:
     def __init__(self):
         self.webhook = WebhookService()
 
-    def create_export(self, db: Session) -> Job:
-        job = Job(status=JobStatus.PENDING, progress=0)
+    def create_export(self, db: Session, user_id: int) -> Job:
+        job = Job(status=JobStatus.PENDING, progress=0, user_id=user_id)
         try:
             db.add(job)
             db.flush()
             db.commit()
-            db.refresh(job)
-            
-            print("create_export 시작")
-
             db.refresh(job)
 
             publish_job_event(job)
@@ -34,19 +30,31 @@ class JobService:
             db.rollback()
             raise
 
-    def get_job(self, db: Session, job_id: int) -> Job | None:
-        return db.get(Job, job_id)
+    def get_job(self, db: Session, job_id: int, user_id: int) -> Job | None:
+        # 소유자 본인의 job만 반환(다른 사용자 job은 없는 것처럼 취급).
+        job = db.get(Job, job_id)
+        if job is None or job.user_id != user_id:
+            return None
+        return job
 
-    def get_jobs(self, db: Session) -> list[Job]:
-        return list(db.scalars(select(Job).order_by(Job.id.desc())).all())
+    def get_jobs(self, db: Session, user_id: int) -> list[Job]:
+        return list(
+            db.scalars(
+                select(Job).where(Job.user_id == user_id).order_by(Job.id.desc())
+            ).all()
+        )
 
-    def get_jobs_page(self, db: Session, page: int, size: int) -> dict:
-        total = db.scalar(select(func.count()).select_from(Job)) or 0
+    def get_jobs_page(self, db: Session, page: int, size: int, user_id: int) -> dict:
+        owned = Job.user_id == user_id
+        total = db.scalar(select(func.count()).select_from(Job).where(owned)) or 0
         status_counts = dict(
-            db.execute(select(Job.status, func.count()).group_by(Job.status)).all()
+            db.execute(
+                select(Job.status, func.count()).where(owned).group_by(Job.status)
+            ).all()
         )
         statement = (
             select(Job)
+            .where(owned)
             .order_by(Job.id.desc())
             .offset((page - 1) * size)
             .limit(size)

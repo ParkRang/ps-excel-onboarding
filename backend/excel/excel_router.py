@@ -4,25 +4,29 @@ from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from core.auth import require_api_key
+from auth.auth_dependencies import get_current_user
 from core.config import Settings
 from core.logging import request_logger
 from db.session import get_db
 from job.job_service import JobService
 from excel.excel_service import excel_service
 from services.storage_service import EXCEL_MIME_TYPE
+from user.user import User
 
 router = APIRouter(tags=["exports"])
 job_service = JobService()
 settings = Settings()
 logger = logging.getLogger(__name__)
 
-@router.post("/create", dependencies=[Depends(require_api_key)])
-async def create_job(db: Session = Depends(get_db)):
+@router.post("/create")
+async def create_job(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
 
-        logger.info("(/create) create_job -> create_export 실행")
-        job = job_service.create_export(db)
+        logger.info("(/create) create_job -> create_export 실행 user_id=%s", current_user.id)
+        job = job_service.create_export(db, current_user.id)
         logger.info("(/create) create_job -> enqueue_job 실행")
         await excel_service.enqueue_job(job)
         db.add(job)

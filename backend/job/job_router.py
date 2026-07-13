@@ -4,12 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
+from auth.auth_dependencies import get_current_user
 from core.config import Settings
 from db.session import get_db
 from job.job_events import job_event_hub
 from job.job_response import JobPageResponse, JobResponse
 from job.job_service import JobService
 from services.storage_service import get_storage_client
+from user.user import User
 
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -64,24 +66,32 @@ async def stream_job_events(request: Request):
 
 
 @router.get("", response_model=list[JobResponse])
-def get_jobs(db: Session = Depends(get_db)):
-    return job_service.get_jobs(db)
+def get_jobs(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return job_service.get_jobs(db, current_user.id)
 
 
 @router.get("/page", response_model=JobPageResponse)
 def get_jobs_page(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return job_service.get_jobs_page(db, page, size)
+    return job_service.get_jobs_page(db, page, size, current_user.id)
 
 
 
 
 @router.get("/{job_id}/download")
-def get_job_download(job_id: int, db: Session = Depends(get_db)):
-    job = job_service.get_job(db, job_id)
+def get_job_download(
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    job = job_service.get_job(db, job_id, current_user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     if not job.download_url:
@@ -103,8 +113,12 @@ def get_job_download(job_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-def get_job(job_id: int, db: Session = Depends(get_db)):
-    job = job_service.get_job(db, job_id)
+def get_job(
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    job = job_service.get_job(db, job_id, current_user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job

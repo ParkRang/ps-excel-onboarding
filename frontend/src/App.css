@@ -50,3 +50,52 @@ td { padding: 18px; border-top: 1px solid #edf0f5; color: #4b5563; font-size: 14
   .summary-grid { grid-template-columns: repeat(2, 1fr); }
   .summary-grid article { padding: 18px; }
 }
+
+/* ===== 인증 화면 ===== */
+.auth-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 32px;
+  border-radius: 16px;
+  background: var(--surface, #fff);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 20px;
+}
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.auth-form input {
+  padding: 10px 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+.auth-form .primary-button {
+  margin-top: 6px;
+}
+.auth-switch {
+  margin-top: 18px;
+  font-size: 0.9rem;
+  text-align: center;
+}
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+}

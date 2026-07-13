@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, Integer, String, Text
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.database import Base
@@ -21,6 +21,14 @@ class Job(Base):
         Integer,
         primary_key=True,
         autoincrement=True,
+    )
+
+    # 소유자. 기존(인증 이전) job 호환을 위해 nullable. 신규 job은 항상 채운다.
+    user_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
     )
 
     status: Mapped[JobStatus] = mapped_column(

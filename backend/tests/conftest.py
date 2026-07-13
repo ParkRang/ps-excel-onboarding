@@ -19,6 +19,7 @@ from common.utils.now import now
 from db.database import Base
 import job.job  # noqa: F401 - 테이블 메타데이터 등록
 import order.order  # noqa: F401 - 테이블 메타데이터 등록
+import user.user  # noqa: F401 - 테이블 메타데이터 등록(Job.user_id FK 대상)
 from job.job import Job
 from order.order import Order
 

@@ -64,6 +64,12 @@ class Settings:
     # 배포했더라도 방어적으로 한 번 더 검증한다. OIDC 셋업 디버깅 시 잠시 끌 수 있게 토글.
     VERIFY_TASK_OIDC = os.getenv("VERIFY_TASK_OIDC", "true").strip().lower() == "true"
 
+    # ===== 사용자 인증(JWT) =====
+    # access 토큰 서명 비밀키. 운영에서는 반드시 강한 랜덤값으로 설정할 것.
+    JWT_SECRET = os.getenv("JWT_SECRET", "dev-insecure-secret-change-me-in-production-32b")
+    JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+    JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+
     @property
     def is_cloud(self) -> bool:
         return self.INFRA_MODE == "cloud"

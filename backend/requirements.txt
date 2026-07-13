@@ -27,3 +27,5 @@ httpx
 sqlalchemy>=2.0
 sse-starlette
 xlsxwriter
+bcrypt
+PyJWT

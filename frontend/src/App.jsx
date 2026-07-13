@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react'
 import { API_BASE_URL, createExportJob, getJobDownloadUrl, getJobs } from './api/jobs'
+import { getMe, getToken, logout } from './api/auth'
+import AuthScreen from './AuthScreen'
 import './App.css'
 
 const STATUS_LABEL = {
@@ -76,7 +78,7 @@ function DownloadLink({ job }) {
 
 const PAGE_SIZE = 20
 
-function App() {
+function JobsPage({ user, onLogout }) {
   const [jobs, setJobs] = useState([])
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
@@ -174,10 +176,8 @@ function App() {
           )
         }
 
-        if (pageRef.current === 1 && updatedJob.status === 'PENDING') {
-          return [updatedJob, ...currentJobs].slice(0, PAGE_SIZE)
-        }
-
+        // 사용자별 job: SSE는 전역이라 다른 사용자의 이벤트도 도착한다.
+        // 내 목록에 없는 job은 추가하지 않는다(내 새 job은 handleCreate가 재조회로 반영).
         return currentJobs
       })
 
@@ -262,6 +262,10 @@ function App() {
           <button className="primary-button" onClick={handleCreate}>
             새 엑셀 만들기
           </button>
+          <div className="user-chip">
+            <span className="muted">{user.email}</span>
+            <button type="button" className="text-button" onClick={onLogout}>로그아웃</button>
+          </div>
         </div>
       </header>
 
@@ -334,6 +338,43 @@ function App() {
       </section>
     </main>
   )
+}
+
+// 인증 게이트: 토큰이 있으면 사용자 확인 후 JobsPage, 없으면 로그인/회원가입 화면.
+function App() {
+  const [user, setUser] = useState(null)
+  // 토큰이 있을 때만 "확인 중" 상태로 시작(없으면 바로 로그인 화면).
+  const [checking, setChecking] = useState(() => Boolean(getToken()))
+
+  useEffect(() => {
+    if (!getToken()) return
+    let active = true
+    getMe()
+      .then((me) => { if (active) setUser(me) })
+      .catch(() => {}) // 401이면 request()가 토큰 정리 + auth:logout 이벤트 발생
+      .finally(() => { if (active) setChecking(false) })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    // 401 등으로 강제 로그아웃될 때 화면을 로그인으로 되돌린다.
+    const onLogout = () => setUser(null)
+    window.addEventListener('auth:logout', onLogout)
+    return () => window.removeEventListener('auth:logout', onLogout)
+  }, [])
+
+  function handleLogout() {
+    logout()
+    setUser(null)
+  }
+
+  if (checking) {
+    return <main className="page-shell"><div className="empty-state">확인 중…</div></main>
+  }
+  if (!user) {
+    return <AuthScreen onAuthenticated={setUser} />
+  }
+  return <JobsPage user={user} onLogout={handleLogout} />
 }
 
 export default App
