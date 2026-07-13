@@ -45,8 +45,34 @@
  - 구현하지 못한 부분과 개선 방향
     
    
+## 배포 (Cloud Run + Cloud Tasks)
 
+`INFRA_MODE=cloud`로 Cloud Run에 배포하면 큐는 Cloud Tasks, 저장소는 GCS를 사용한다.
+값을 채운 뒤 아래 스크립트로 배포한다:
 
+```bash
+# 1) 백엔드: deploy/deploy_backend.sh 상단 변수(PROJECT_ID, SERVICE_ACCOUNT, 큐/버킷/Cloud SQL 등)를 채운 뒤
+./deploy/deploy_backend.sh
+
+# 2) 프론트엔드: 백엔드 배포 후, deploy/deploy_frontend.sh 상단 변수를 채운 뒤
+#    (VITE_API_KEY 는 백엔드 API_KEY 와 동일해야 함)
+./deploy/deploy_frontend.sh
+```
+
+프론트엔드는 정적 SPA를 nginx로 서빙하고 `/api`를 백엔드 Cloud Run으로 프록시한다.
+`VITE_API_KEY`는 Cloud Build로 **빌드타임 주입**되고, nginx는 Cloud Run 라우팅을 위해
+`Host=<백엔드 호스트>` + SNI(`proxy_ssl_server_name on`)로 프록시한다. 스크립트가 백엔드
+URL을 자동 조회해 `BACKEND_UPSTREAM`/`BACKEND_HOST` 환경변수로 넣어준다.
+
+스크립트가 하는 일: 필요한 API 활성화 → 큐/버킷 생성(없으면) → 서비스계정 IAM
+부여(cloudtasks.enqueuer / serviceAccountUser / tokenCreator / storage.objectAdmin) →
+Cloud SQL 연결·환경변수·타임아웃(1800s)과 함께 배포 → 배포 URL을 `BACKEND_URL`로 반영해 재배포.
+
+보안 모델:
+- Cloud Run은 `--allow-unauthenticated`로 배포한다(브라우저가 `/create` 호출).
+- `POST /create`는 `API_KEY`(`X-API-Key` 헤더)로 보호. 프론트는 `VITE_API_KEY`로 전송.
+- Cloud Tasks 콜백 `POST /tasks/excel`은 앱 레벨 OIDC 검증(`VERIFY_TASK_OIDC=true`)으로
+  보호한다. audience는 `BACKEND_URL`, 발급 주체는 `TASKS_SERVICE_ACCOUNT_EMAIL`과 일치해야 한다.
 
 
 

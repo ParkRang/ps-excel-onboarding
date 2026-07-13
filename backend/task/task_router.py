@@ -1,7 +1,8 @@
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from core.auth import verify_cloud_task_oidc
 from core.logging import event_logger
 from excel.worker_service import WorkerBusyError, WorkerService
 from task.task_request import TaskRequest
@@ -12,7 +13,7 @@ worker = WorkerService()
 excel_semaphore = asyncio.Semaphore(1)
 
 
-@router.post("/excel")
+@router.post("/excel", dependencies=[Depends(verify_cloud_task_oidc)])
 async def export_task(request: TaskRequest):
     event_logger("Cloud Task callback received", requested_job_id=request.job_id)
     try:

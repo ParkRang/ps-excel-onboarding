@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from pathlib import Path
 
+from core.auth import require_api_key
 from core.config import Settings
 from core.logging import request_logger
 from db.session import get_db
@@ -16,7 +17,7 @@ job_service = JobService()
 settings = Settings()
 logger = logging.getLogger(__name__)
 
-@router.post("/create")
+@router.post("/create", dependencies=[Depends(require_api_key)])
 async def create_job(db: Session = Depends(get_db)):
     try:
 

@@ -50,10 +50,10 @@ function DownloadLink({ job }) {
     setDownloadError('')
     try {
       const { download_url: downloadUrl } = await getJobDownloadUrl(job.job_id)
-      const targetUrl = downloadUrl.startsWith('http')
-        ? downloadUrl
-        : `${API_BASE_URL}${downloadUrl}`
-      window.location.assign(targetUrl)
+      // 클라우드 모드는 GCS signed URL(절대 경로)을 그대로 사용하고,
+      // 로컬 모드는 백엔드 상대 경로(/files/...)에 API_BASE_URL을 붙인다.
+      const isAbsolute = /^https?:\/\//i.test(downloadUrl)
+      window.location.assign(isAbsolute ? downloadUrl : `${API_BASE_URL}${downloadUrl}`)
     } catch (error) {
       setDownloadError(error.message)
     } finally {

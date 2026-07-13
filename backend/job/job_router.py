@@ -4,14 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
+from core.config import Settings
 from db.session import get_db
 from job.job_events import job_event_hub
 from job.job_response import JobPageResponse, JobResponse
 from job.job_service import JobService
+from services.storage_service import get_storage_client
 
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 job_service = JobService()
+settings = Settings()
 
 @router.get("/events")
 async def stream_job_events(request: Request):
@@ -83,13 +86,20 @@ def get_job_download(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Job not found")
     if not job.download_url:
         raise HTTPException(status_code=409, detail="Excel file is not ready")
-    
-    return {
-        "download_url": job.download_url,
-    }
 
-    # download_url = GCSClient().create_download_url(job.gcs_object_name)
-    # return {"download_url": download_url}
+    # ===== [FIX] 서명 URL 재발급 =====
+    # cloud 모드의 GCS 서명 URL은 1시간 만료라, DB에 저장해 둔 값을 그대로 주면
+    # 생성 후 1시간 뒤 다운로드가 403으로 실패한다. 요청 시점에 object_name으로
+    # 새 서명 URL을 발급해 항상 유효한 링크를 돌려준다.
+    # (local 모드의 download_url은 만료 없는 정적 경로이므로 그대로 사용)
+    if settings.is_cloud and job.gcs_object_name:
+        download_url = get_storage_client().create_download_url(job.gcs_object_name)
+    else:
+        download_url = job.download_url
+
+    return {
+        "download_url": download_url,
+    }
 
 
 @router.get("/{job_id}", response_model=JobResponse)

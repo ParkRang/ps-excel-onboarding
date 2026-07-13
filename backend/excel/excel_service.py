@@ -1,11 +1,11 @@
 import tempfile, asyncio, logging
-from math import ceil
 from itertools import count
 from pathlib import Path
 from time import perf_counter
+from datetime import timedelta
 
-from openpyxl import Workbook
-from sqlalchemy import func, select
+import xlsxwriter
+from sqlalchemy import and_, func, or_, select, update
 
 from job.job import Job
 from common.enums.job_status import JobStatus
@@ -18,10 +18,12 @@ from core.logging import complete_logger, fail_logger, start_logger
 
 from job.job_events import publish_job_event
 from common.utils.now import now
+from webhook.webhook_service import WebhookService
 
 logger = logging.getLogger(__name__)
 settings = Settings()
 cloud_task_service = CloudTaskService()
+webhook_service = WebhookService()
 
 job_queue:asyncio.PriorityQueue = asyncio.PriorityQueue()
 queued_job_ids: set[int] = set()
@@ -30,6 +32,53 @@ sequence = count()
 
 class ExcelService:
     MAX_CHUNK_SIZE = 5000
+    # 진행률을 몇 페이지마다 DB에 커밋할지 (commit 왕복 비용 절감)
+    PROGRESS_COMMIT_EVERY = 4
+
+    def _claim_job(self, db, job_id: int) -> int:
+        """job을 원자적으로 PROCESSING으로 선점한다. 선점 rowcount(1 또는 0)를 반환.
+
+        선점 대상:
+          - PENDING / FAILED (정상 시작 또는 재시도), 또는
+          - 리스(PROCESSING_LEASE_SECONDS)가 만료된 PROCESSING(죽은 워커가 남긴 좀비)
+        단, attempt_count < MAX_ATTEMPTS 인 경우만.
+
+        - 중복 실행 방어: Cloud Tasks는 at-least-once라 같은 job이 중복 도착할 수
+          있다. 이미 다른 워커가 선점(리스 유효)했다면 rowcount=0 → 건너뛴다.
+        - stale 리클레임: 인스턴스가 export 도중 죽으면 job이 PROCESSING에 묶인다.
+          started_at이 리스를 넘긴 PROCESSING을 재선점 대상에 포함해 복구한다.
+          리스는 정상 실행이 도중에 탈취되지 않도록 dispatch_deadline 이상으로 둔다.
+        - 재시도 상한: attempt_count가 MAX_ATTEMPTS에 도달하면 선점하지 않아
+          영구 실패로 고정되고, 콜백은 정상 응답하여 Cloud Tasks 재시도를 멈춘다.
+        """
+        lease_cutoff = now() - timedelta(seconds=settings.PROCESSING_LEASE_SECONDS)
+        result = db.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .where(
+                or_(
+                    Job.status.in_([JobStatus.PENDING, JobStatus.FAILED]),
+                    and_(
+                        Job.status == JobStatus.PROCESSING,
+                        Job.started_at.is_not(None),
+                        Job.started_at < lease_cutoff,
+                    ),
+                )
+            )
+            .where(Job.attempt_count < settings.MAX_ATTEMPTS)
+            .values(
+                status=JobStatus.PROCESSING,
+                started_at=now(),
+                failed_at=None,
+                completed_at=None,
+                error_message=None,
+                progress=0,
+                processed_rows=0,
+                attempt_count=Job.attempt_count + 1,
+            )
+        )
+        db.commit()
+        return result.rowcount
 
     def create_excel(self, job_id: int):
         # ===== [IMPORTANT]
@@ -52,29 +101,43 @@ class ExcelService:
                 logger.warning("Job not found: %s", job_id)
                 return
 
-            # ===== [ADD] 작업 시작 상태 저장 =====
-            job.status = JobStatus.PROCESSING
-            job.started_at = now()
-            job.failed_at = None
-            job.completed_at = None
-            job.error_message = None
-            job.progress = 0
-            job.processed_rows = 0
-            job.attempt_count += 1
-
-            db.commit()
+            claimed = self._claim_job(db, job_id)
             db.refresh(job)
+
+            if claimed == 0:
+                # rowcount=0 원인은 세 가지다:
+                # (1) 다른 워커가 이미 선점하고 리스가 살아있음(최근 started_at의 PROCESSING)
+                # (2) 이미 완료됨(DONE)
+                # (3) 재시도 상한 도달(attempt_count >= MAX_ATTEMPTS) → 영구 실패
+                logger.info(
+                    "claim에 실패하여 job을 건너뜁니다. "
+                    "job_id=%s status=%s attempt_count=%s max_attempts=%s",
+                    job_id,
+                    job.status,
+                    job.attempt_count,
+                    settings.MAX_ATTEMPTS,
+                )
+                return
 
             # ===== [ADD] 상태 변경 즉시 SSE 발행 =====
             publish_job_event(job)
             start_logger(job_id=job.id, started_at=job.started_at)
 
-            # ===== [기존 코드 유지] 엑셀 workbook 생성 =====
-            workbook = Workbook()
-            sheet = workbook.active
-            sheet.title = "Orders"
+            # ===== [PERF] xlsxwriter 스트리밍 workbook =====
+            # constant_memory=True 는 write된 행을 순차적으로 디스크에 흘려보내
+            # 메모리를 상수로 유지한다(openpyxl write_only와 동일). 순수 파이썬
+            # 쓰기 속도가 openpyxl보다 ~1.5배 빨라 대용량에서 전체 작업시간이 크게 준다.
+            # xlsxwriter는 생성 시점에 파일을 열므로 출력 경로를 먼저 결정한다.
+            output_dir = Path(settings.EXCEL_STORAGE_DIR)
+            if settings.is_cloud:
+                output_dir = Path(tempfile.gettempdir())
+            else:
+                output_dir.mkdir(parents=True, exist_ok=True)
+            file_path = output_dir / f"{job.id}.xlsx"
 
-            sheet.append([
+            workbook = xlsxwriter.Workbook(str(file_path), {"constant_memory": True})
+            sheet = workbook.add_worksheet("Orders")
+            sheet.write_row(0, 0, [
                 "ID",
                 "User Name",
                 "Product Name",
@@ -83,6 +146,7 @@ class ExcelService:
                 "Status",
                 "Order date",
             ])
+            row_index = 1
 
             # ===== [기존 코드 유지] 전체 row 수 조회 =====
             total_rows = db.scalar(select(func.count(Order.id))) or 0
@@ -98,58 +162,75 @@ class ExcelService:
             publish_job_event(job)
 
             if total_rows > 0:
-                total_pages = ceil(total_rows / self.MAX_CHUNK_SIZE)
+                # ===== [PERF] keyset(seek) 페이징 + 컬럼만 select =====
+                # OFFSET은 페이지가 뒤로 갈수록 앞 행을 매번 스캔해 총 시간이 제곱으로
+                # 증가한다. `WHERE id > last_id`(keyset)는 인덱스로 바로 점프해 선형이며
+                # 동시 insert/delete에도 행 누락/중복이 없다. 또한 ORM 객체 대신 필요한
+                # 컬럼만 읽어(Core Row) 인스턴스화 오버헤드를 없앤다.
+                columns = select(
+                    Order.id,
+                    Order.user_name,
+                    Order.product_name,
+                    Order.category,
+                    Order.amount,
+                    Order.status,
+                    Order.order_date,
+                )
                 processed_rows = 0
+                last_id = 0
+                page = 0
 
-                for page in range(total_pages):
-                    offset = page * self.MAX_CHUNK_SIZE
-
+                while True:
                     read_started_at = perf_counter()
-                    orders = db.scalars(
-                        select(Order)
+                    rows = db.execute(
+                        columns
+                        .where(Order.id > last_id)
                         .order_by(Order.id)
-                        .offset(offset)
                         .limit(self.MAX_CHUNK_SIZE)
                     ).all()
                     read_elapsed += perf_counter() - read_started_at
 
+                    if not rows:
+                        break
+
                     write_started_at = perf_counter()
-                    for order in orders:
-                        sheet.append([
-                            order.id,
-                            order.user_name,
-                            order.product_name,
-                            order.category,
-                            order.amount,
-                            order.status,
-                            self._format_datetime(order.order_date),
+                    for r in rows:
+                        sheet.write_row(row_index, 0, [
+                            r.id,
+                            r.user_name,
+                            r.product_name,
+                            r.category,
+                            r.amount,
+                            r.status,
+                            self._format_datetime(r.order_date),
                         ])
+                        row_index += 1
                     write_elapsed += perf_counter() - write_started_at
 
-                    processed_rows += len(orders)
+                    processed_rows += len(rows)
+                    last_id = rows[-1].id
+                    page += 1
                     progress = int((processed_rows / total_rows) * 100)
-                    
+
                     logger.info(f'{job_id}번 작업 실행률 : {progress}%')
-                    
-                    # ===== [ADD] 진행률 저장 =====
+
                     job.processed_rows = processed_rows
                     job.progress = min(progress, 99)
 
-                    db.commit()
-                    db.refresh(job)
+                    # ===== [PERF] 진행률 commit 스로틀링 =====
+                    # 페이지마다 commit하면 (특히 Cloud SQL에선) 매번 왕복 비용이 든다.
+                    # N페이지마다만 영속화한다. SSE도 이때 함께 발행(REST가 authoritative).
+                    if page % self.PROGRESS_COMMIT_EVERY == 0:
+                        db.commit()
+                        publish_job_event(job)
 
-                    # ===== [ADD] 진행률 변경 즉시 SSE 발행 =====
-                    publish_job_event(job)
+                # 스로틀로 아직 커밋되지 않은 마지막 진행률을 반영한다.
+                db.commit()
+                publish_job_event(job)
 
-            output_dir = Path(settings.EXCEL_STORAGE_DIR)
-            if settings.is_cloud:
-                output_dir = Path(tempfile.gettempdir())
-            else:
-                output_dir.mkdir(parents=True, exist_ok=True)
-
-            file_path = output_dir / f"{job.id}.xlsx"
+            # xlsxwriter는 close() 시점에 파일을 최종화한다(openpyxl save 대체).
             save_started_at = perf_counter()
-            workbook.save(file_path)
+            workbook.close()
             save_elapsed += perf_counter() - save_started_at
             storage = get_storage_client()
             if settings.is_cloud:
@@ -171,7 +252,7 @@ class ExcelService:
             job.gcs_url = storage_result.get("gcs_url")
 
             if job.started_at is not None:
-                job.duration_seconds = int((job.completed_at - job.started_at).total_seconds())
+                job.duration_seconds = round((job.completed_at - job.started_at).total_seconds(), 2)
 
             db.commit()
             db.refresh(job)
@@ -182,6 +263,11 @@ class ExcelService:
                 job_id=job.id,
                 completed_at=job.completed_at,
                 duration_seconds=job.duration_seconds,
+            )
+            webhook_service.send_success_message(
+                job.id,
+                job.completed_at,
+                job.download_url,
             )
             logger.info(
                 "엑셀 생성 작업이 완료되었습니다. job_id=%s total_rows=%s download_url=%s",
@@ -216,7 +302,7 @@ class ExcelService:
                 job.error_message = str(exc)
 
                 if job.started_at is not None:
-                    job.duration_seconds = int((job.failed_at - job.started_at).total_seconds())
+                    job.duration_seconds = round((job.failed_at - job.started_at).total_seconds(), 2)
 
                 db.commit()
                 db.refresh(job)
@@ -227,6 +313,10 @@ class ExcelService:
                     job_id=job.id,
                     failed_at=job.failed_at,
                     error_message=job.error_message,
+                )
+                webhook_service.send_failure_message(
+                    job.id,
+                    job.error_message,
                 )
 
             raise
@@ -242,6 +332,8 @@ class ExcelService:
 
         if settings.is_cloud:
             task_name = cloud_task_service.enqueue(job_id)
+            # task_name은 호출측(excel_router.create_job)이 enqueue 직후 db.commit()
+            # 하면서 함께 영속된다. 여기서 별도 commit하지 않는다.
             job.task_name = task_name
             logger.info("Cloud Tasks에 엑셀 작업을 등록했습니다. job_id=%s task_name=%s", job_id, task_name)
             return

@@ -1,8 +1,15 @@
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
+// 백엔드 API_KEY가 켜져 있으면 X-API-Key 헤더로 전송한다(빌드 타임 주입).
+// SPA에 내장되는 값이므로 완전한 비밀은 아니며, 익명 트래픽 차단 용도다.
+const API_KEY = import.meta.env.VITE_API_KEY
+
 async function request(path, options) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+    },
     ...options,
   })
 

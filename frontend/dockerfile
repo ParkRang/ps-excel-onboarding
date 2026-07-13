@@ -5,6 +5,10 @@ WORKDIR /frontend
 ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
+# 백엔드 API_KEY가 켜져 있으면 SPA 빌드에 주입되어 X-API-Key 헤더로 전송된다.
+ARG VITE_API_KEY
+ENV VITE_API_KEY=$VITE_API_KEY
+
 COPY package*.json ./
 RUN npm install
 
@@ -14,8 +18,11 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 
+# BACKEND_HOST: /api 프록시 시 Host 헤더 값. Cloud Run 백엔드로 프록시할 땐
+# 백엔드의 *.run.app 호스트명이어야 라우팅된다(로컬 compose는 기본값 backend).
 ENV PORT=3000 \
-    BACKEND_UPSTREAM=http://backend:8000
+    BACKEND_UPSTREAM=http://backend:8000 \
+    BACKEND_HOST=backend
 
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 

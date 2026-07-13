@@ -43,6 +43,11 @@ async def lifespan(app: FastAPI):
     # )
     worker_task = None
     logger.info("애플리케이션을 시작합니다. infra_mode=%s", settings.INFRA_MODE)
+    if not settings.API_KEY:
+        logger.warning(
+            "API_KEY가 설정되지 않아 POST /create가 인증 없이 열려 있습니다. "
+            "운영 환경에서는 API_KEY를 설정하세요."
+        )
     if settings.is_local:
         logger.info("local 모드이므로 내부 백그라운드 엑셀 worker를 시작합니다.")
         worker_task = asyncio.create_task(excel_service.worker_loop())
